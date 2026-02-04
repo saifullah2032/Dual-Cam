@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:get/get.dart';
+import 'package:camera/camera.dart';
 
 import '../providers/camera_provider.dart';
+import '../services/permission_service.dart';
+import '../services/recording_service.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
 import 'recording_screen.dart';
@@ -16,17 +20,85 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  late RecordingService _recordingService;
+  bool _permissionsGranted = false;
+
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
+    _initializeApp();
   }
 
-  Future<void> _initializeCamera() async {
-    AppLogger.info('Initializing camera capabilities...');
+  Future<void> _initializeApp() async {
+    AppLogger.info('Initializing app...');
+    
+    // Request permissions
+    await _requestPermissions();
+    
+    // Initialize camera capabilities
     if (mounted) {
       final provider = context.read<CameraProvider>();
       await provider.initializeCameraCapabilities();
+    }
+
+    // Initialize recording service
+    if (!Get.isRegistered<RecordingService>()) {
+      Get.put(RecordingService());
+    }
+    _recordingService = Get.find<RecordingService>();
+
+    // Initialize cameras after capabilities are checked
+    if (mounted && _permissionsGranted) {
+      _initializeCameras();
+    }
+  }
+
+  Future<void> _requestPermissions() async {
+    try {
+      AppLogger.info('Requesting permissions...');
+      final granted = await PermissionService.requestAllRecordingPermissions();
+      
+      if (mounted) {
+        setState(() {
+          _permissionsGranted = granted;
+        });
+      }
+
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Camera and storage permissions are required'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      AppLogger.error('Failed to request permissions', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Permission error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _initializeCameras() async {
+    try {
+      AppLogger.info('Initializing cameras...');
+      await _recordingService.initializeCameras(
+        resolution: ResolutionPreset.high,
+        enableAudio: true,
+      );
+      AppLogger.info('Cameras initialized successfully');
+    } catch (e) {
+      AppLogger.error('Failed to initialize cameras', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera error: $e')),
+        );
+      }
     }
   }
 

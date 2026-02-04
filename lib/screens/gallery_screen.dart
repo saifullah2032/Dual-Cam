@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../services/file_storage_service.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
+import 'video_player_screen.dart';
 
 /// Screen for viewing recorded videos
 class GalleryScreen extends StatefulWidget {
@@ -139,23 +140,22 @@ class _GalleryScreenState extends State<GalleryScreen> {
         ),
         trailing: PopupMenuButton(
           itemBuilder: (context) => [
-            PopupMenuItem(
-              child: const Row(
-                children: [
-                  Icon(Icons.play_arrow),
-                  SizedBox(width: 8),
-                  Text('Play'),
-                ],
-              ),
-              onTap: () {
-                // TODO: Implement video playback
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Video playback coming soon'),
-                  ),
-                );
-              },
-            ),
+             PopupMenuItem(
+               child: const Row(
+                 children: [
+                   Icon(Icons.play_arrow),
+                   SizedBox(width: 8),
+                   Text('Play'),
+                 ],
+               ),
+               onTap: () {
+                 Navigator.of(context).push(
+                   MaterialPageRoute(
+                     builder: (_) => VideoPlayerScreen(videoFile: file),
+                   ),
+                 );
+               },
+             ),
             PopupMenuItem(
               child: const Row(
                 children: [

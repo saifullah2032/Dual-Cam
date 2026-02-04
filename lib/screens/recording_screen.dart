@@ -3,10 +3,10 @@ import 'package:get/get.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../services/recording_service.dart';
-import '../services/layout_service.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
 import '../widgets/recording_timer.dart';
+import '../widgets/camera_preview_widget.dart';
 
 /// Screen for recording from dual cameras
 class RecordingScreen extends StatefulWidget {
@@ -18,7 +18,6 @@ class RecordingScreen extends StatefulWidget {
 
 class _RecordingScreenState extends State<RecordingScreen> {
   late RecordingService _recordingService;
-  late LayoutService _layoutService;
 
   @override
   void initState() {
@@ -33,11 +32,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
         Get.put(RecordingService());
       }
       _recordingService = Get.find<RecordingService>();
-
-      if (!Get.isRegistered<LayoutService>()) {
-        Get.put(LayoutService());
-      }
-      _layoutService = Get.find<LayoutService>();
 
       // Initialize cameras
       await _recordingService.initializeCameras();
@@ -116,36 +110,73 @@ class _RecordingScreenState extends State<RecordingScreen> {
   Widget _buildCameraPreview() {
     return Container(
       color: OceanColors.deepSeaBlue,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      child: Obx(() {
+        final isInitialized = _recordingService.isInitialized;
+        final frontCamera = _recordingService.frontCamera;
+        final backCamera = _recordingService.backCamera;
+
+        if (!isInitialized || (frontCamera == null && backCamera == null)) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.videocam,
+                  size: 48,
+                  color: OceanColors.aquamarine,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Initializing cameras...',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: OceanColors.aquamarine,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Display dual camera preview in split-screen layout
+        return Stack(
           children: [
-            Icon(
-              Icons.videocam,
-              size: 48,
-              color: OceanColors.aquamarine,
+            Row(
+              children: [
+                // Front camera
+                if (frontCamera != null)
+                  Expanded(
+                    child: CameraPreviewWidget(
+                      controller: frontCamera,
+                      onError: (e) {
+                        AppLogger.error('Front camera error', error: e);
+                      },
+                    ),
+                  ),
+                // Back camera
+                if (backCamera != null)
+                  Expanded(
+                    child: CameraPreviewWidget(
+                      controller: backCamera,
+                      onError: (e) {
+                        AppLogger.error('Back camera error', error: e);
+                      },
+                    ),
+                  ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Camera Preview (Native Integration Coming Soon)',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: OceanColors.aquamarine,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            Obx(() {
-              if (_recordingService.isRecording) {
-                return RecordingTimer(
+            // Timer overlay
+            if (_recordingService.isRecording)
+              Positioned(
+                top: 16,
+                right: 16,
+                child: RecordingTimer(
                   duration: _recordingService.recordingDuration,
                   isRecording: true,
-                );
-              }
-              return const SizedBox();
-            }),
+                ),
+              ),
           ],
-        ),
-      ),
+        );
+      }),
     );
   }
 
