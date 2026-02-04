@@ -460,9 +460,13 @@ class NativeCameraService extends GetxService {
       if (paths['frontPhoto'] != null) {
         photoResult['frontPhoto'] = paths['frontPhoto'] as String;
       }
+      // Handle composed photo from native dual-camera capture
+      if (paths['composedPhoto'] != null) {
+        photoResult['composedPhoto'] = paths['composedPhoto'] as String;
+      }
 
       AppLogger.info('Photos captured: $photoResult');
-      return photoResult;
+      return photoResult.isNotEmpty ? photoResult : null;
     } catch (e) {
       AppLogger.error('Take picture error', error: e);
       rethrow;

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
 import '../services/native_camera_service.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
+import '../widgets/ocean_animations.dart';
 
 /// Screen for recording from cameras using native Android Camera2 API
 class RecordingScreen extends StatefulWidget {
@@ -17,6 +17,8 @@ class RecordingScreen extends StatefulWidget {
 class _RecordingScreenState extends State<RecordingScreen> with TickerProviderStateMixin {
   late NativeCameraService _cameraService;
   late AnimationController _pulseController;
+  late AnimationController _waveController;
+  late AnimationController _glowController;
   bool _isInitializing = true;
   String? _initError;
 
@@ -25,6 +27,16 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
     super.initState();
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _waveController = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
+
+    _glowController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     )..repeat(reverse: true);
 
@@ -67,8 +79,16 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
         backgroundColor: OceanColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -77,8 +97,16 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   void _showSuccess(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
         backgroundColor: OceanColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -97,8 +125,15 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   Future<void> _stopRecording() async {
     try {
       final paths = await _cameraService.stopRecording();
-      if (paths != null && (paths['composedVideo'] != null || paths['backVideo'] != null)) {
-        _showSuccess('Video saved to gallery!');
+      if (paths != null && paths.isNotEmpty) {
+        final hasValidPath = paths['composedVideo'] != null || 
+                             paths['backVideo'] != null || 
+                             paths['frontVideo'] != null;
+        if (hasValidPath) {
+          _showSuccess('Video saved successfully!');
+        } else {
+          _showError('Failed to save video');
+        }
       } else {
         _showError('Failed to save video');
       }
@@ -111,10 +146,17 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   Future<void> _takePhoto() async {
     try {
       final photos = await _cameraService.takePicture();
-      if (photos != null && (photos['composedPhoto'] != null || photos.isNotEmpty)) {
-        _showSuccess('Photo saved to gallery!');
+      if (photos != null && photos.isNotEmpty) {
+        final hasValidPath = photos['composedPhoto'] != null || 
+                             photos['backPhoto'] != null || 
+                             photos['frontPhoto'] != null;
+        if (hasValidPath) {
+          _showSuccess('Photo saved successfully!');
+        } else {
+          _showError('Failed to save photo');
+        }
       } else {
-        _showError('Failed to capture photo');
+        _showError('Failed to save photo');
       }
     } catch (e) {
       AppLogger.error('Failed to take photo', error: e);
@@ -122,100 +164,147 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
     }
   }
 
-  Future<void> _openDeviceGallery() async {
-    try {
-      // Use platform channel to open device gallery
-      const channel = MethodChannel('com.example.dual_recorder/camera');
-      await channel.invokeMethod('openGallery');
-    } catch (e) {
-      AppLogger.error('Failed to open gallery', error: e);
-      _showError('Failed to open gallery');
-    }
-  }
-
   void _showLayoutPicker() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: OceanColors.deepSeaBlue,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) => _buildLayoutPicker(),
     );
   }
 
   Widget _buildLayoutPicker() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: OceanColors.deepSeaBlue,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [
+          BoxShadow(
+            color: OceanColors.aquamarine.withOpacity(0.2),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Preview Layout',
-            style: TextStyle(
-              color: OceanColors.pearlWhite,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
+          // Handle bar
+          Container(
+            margin: const EdgeInsets.only(top: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: OceanColors.aquamarine.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 20),
-          Obx(() {
-            final currentLayout = _cameraService.currentLayout;
-            final isDualMode = _cameraService.isDualCameraMode;
-            
-            // Filter layouts based on dual mode availability
-            final availableLayouts = isDualMode 
-                ? PreviewLayout.values 
-                : [PreviewLayout.singleBack, PreviewLayout.singleFront];
-
-            return Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: availableLayouts.map((layout) {
-                final isSelected = currentLayout == layout;
-                return InkWell(
-                  onTap: () async {
-                    await _cameraService.setLayout(layout);
-                    if (mounted) Navigator.pop(context);
-                  },
-                  child: Container(
-                    width: 100,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isSelected 
-                          ? OceanColors.aquamarine.withAlpha(50) 
-                          : Colors.white10,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelected ? OceanColors.aquamarine : Colors.white24,
-                        width: isSelected ? 2 : 1,
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: OceanColors.aquamarine.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.grid_view,
+                        color: OceanColors.aquamarine,
+                        size: 20,
                       ),
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _getLayoutIcon(layout, isSelected),
-                        const SizedBox(height: 8),
-                        Text(
-                          layout.displayName,
-                          style: TextStyle(
-                            color: isSelected 
-                                ? OceanColors.aquamarine 
-                                : OceanColors.pearlWhite,
-                            fontSize: 11,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Preview Layout',
+                      style: TextStyle(
+                        color: OceanColors.pearlWhite,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                );
-              }).toList(),
-            );
-          }),
-          const SizedBox(height: 20),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Obx(() {
+                  final currentLayout = _cameraService.currentLayout;
+                  final isDualMode = _cameraService.isDualCameraMode;
+                  
+                  // Filter layouts based on dual mode availability
+                  final availableLayouts = isDualMode 
+                      ? PreviewLayout.values 
+                      : [PreviewLayout.singleBack, PreviewLayout.singleFront];
+
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: availableLayouts.map((layout) {
+                      final isSelected = currentLayout == layout;
+                      return InkWell(
+                        onTap: () async {
+                          await _cameraService.setLayout(layout);
+                          if (mounted) Navigator.pop(context);
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 100,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            gradient: isSelected
+                                ? LinearGradient(
+                                    colors: [
+                                      OceanColors.aquamarine.withOpacity(0.3),
+                                      OceanColors.vibrantTeal.withOpacity(0.1),
+                                    ],
+                                  )
+                                : null,
+                            color: isSelected ? null : Colors.white10,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? OceanColors.aquamarine : Colors.white24,
+                              width: isSelected ? 2 : 1,
+                            ),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: OceanColors.aquamarine.withOpacity(0.3),
+                                      blurRadius: 8,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _getLayoutIcon(layout, isSelected),
+                              const SizedBox(height: 8),
+                              Text(
+                                layout.displayName,
+                                style: TextStyle(
+                                  color: isSelected 
+                                      ? OceanColors.aquamarine 
+                                      : OceanColors.pearlWhite,
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  );
+                }),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -229,61 +318,97 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(width: 20, height: 30, color: color),
+            Container(width: 20, height: 30, decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(4),
+            )),
             const SizedBox(width: 4),
-            Container(width: 20, height: 30, color: color.withAlpha(150)),
+            Container(width: 20, height: 30, decoration: BoxDecoration(
+              color: color.withAlpha(150),
+              borderRadius: BorderRadius.circular(4),
+            )),
           ],
         );
       case PreviewLayout.sideBySideVertical:
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(width: 40, height: 15, color: color),
+            Container(width: 40, height: 15, decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(4),
+            )),
             const SizedBox(height: 4),
-            Container(width: 40, height: 15, color: color.withAlpha(150)),
+            Container(width: 40, height: 15, decoration: BoxDecoration(
+              color: color.withAlpha(150),
+              borderRadius: BorderRadius.circular(4),
+            )),
           ],
         );
       case PreviewLayout.pipTopLeft:
         return Stack(
           children: [
-            Container(width: 40, height: 30, color: color.withAlpha(150)),
+            Container(width: 40, height: 30, decoration: BoxDecoration(
+              color: color.withAlpha(150),
+              borderRadius: BorderRadius.circular(4),
+            )),
             Positioned(
               top: 2,
               left: 2,
-              child: Container(width: 12, height: 10, color: color),
+              child: Container(width: 12, height: 10, decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(2),
+              )),
             ),
           ],
         );
       case PreviewLayout.pipTopRight:
         return Stack(
           children: [
-            Container(width: 40, height: 30, color: color.withAlpha(150)),
+            Container(width: 40, height: 30, decoration: BoxDecoration(
+              color: color.withAlpha(150),
+              borderRadius: BorderRadius.circular(4),
+            )),
             Positioned(
               top: 2,
               right: 2,
-              child: Container(width: 12, height: 10, color: color),
+              child: Container(width: 12, height: 10, decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(2),
+              )),
             ),
           ],
         );
       case PreviewLayout.pipBottomLeft:
         return Stack(
           children: [
-            Container(width: 40, height: 30, color: color.withAlpha(150)),
+            Container(width: 40, height: 30, decoration: BoxDecoration(
+              color: color.withAlpha(150),
+              borderRadius: BorderRadius.circular(4),
+            )),
             Positioned(
               bottom: 2,
               left: 2,
-              child: Container(width: 12, height: 10, color: color),
+              child: Container(width: 12, height: 10, decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(2),
+              )),
             ),
           ],
         );
       case PreviewLayout.pipBottomRight:
         return Stack(
           children: [
-            Container(width: 40, height: 30, color: color.withAlpha(150)),
+            Container(width: 40, height: 30, decoration: BoxDecoration(
+              color: color.withAlpha(150),
+              borderRadius: BorderRadius.circular(4),
+            )),
             Positioned(
               bottom: 2,
               right: 2,
-              child: Container(width: 12, height: 10, color: color),
+              child: Container(width: 12, height: 10, decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(2),
+              )),
             ),
           ],
         );
@@ -298,28 +423,92 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: OceanColors.deepSeaBlue,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Camera', style: TextStyle(color: OceanColors.pearlWhite)),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                OceanColors.deepSeaBlue.withOpacity(0.8),
+                Colors.transparent,
+              ],
+            ),
+          ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedBuilder(
+              animation: _glowController,
+              builder: (context, child) {
+                return Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: OceanColors.aquamarine.withOpacity(0.3 + _glowController.value * 0.2),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.videocam,
+                    color: OceanColors.aquamarine,
+                    size: 20,
+                  ),
+                );
+              },
+            ),
+            const SizedBox(width: 8),
+            const Text('Camera', style: TextStyle(color: OceanColors.pearlWhite, fontWeight: FontWeight.w600)),
+          ],
+        ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: OceanColors.pearlWhite),
+          icon: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.black26,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.arrow_back, color: OceanColors.pearlWhite, size: 20),
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
           // Layout picker button
           IconButton(
-            icon: const Icon(Icons.grid_view, color: OceanColors.pearlWhite),
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.grid_view, color: OceanColors.pearlWhite, size: 20),
+            ),
             onPressed: _cameraService.isRecording ? null : _showLayoutPicker,
             tooltip: 'Change Layout',
           ),
           // Swap cameras button
           Obx(() => IconButton(
-            icon: Icon(
-              Icons.swap_horiz,
-              color: _cameraService.isDualCameraMode 
-                  ? OceanColors.pearlWhite 
-                  : Colors.white38,
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.swap_horiz,
+                color: _cameraService.isDualCameraMode 
+                    ? OceanColors.pearlWhite 
+                    : Colors.white38,
+                size: 20,
+              ),
             ),
             onPressed: _cameraService.isDualCameraMode && !_cameraService.isRecording
                 ? () async {
@@ -331,7 +520,14 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
           )),
           // Debug info button
           IconButton(
-            icon: const Icon(Icons.info_outline, color: OceanColors.pearlWhite),
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.info_outline, color: OceanColors.pearlWhite, size: 20),
+            ),
             onPressed: _showDebugInfo,
           ),
         ],
@@ -350,41 +546,68 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: OceanColors.deepSeaBlue,
-        title: const Text('Debug Info', style: TextStyle(color: OceanColors.pearlWhite)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: OceanColors.aquamarine.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.info, color: OceanColors.aquamarine, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('Debug Info', style: TextStyle(color: OceanColors.pearlWhite)),
+          ],
+        ),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Device:', style: TextStyle(color: OceanColors.aquamarine, fontWeight: FontWeight.bold)),
-              Text('${deviceInfo['manufacturer']} ${deviceInfo['model']}',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
-              Text('Android ${deviceInfo['release']} (API ${deviceInfo['androidVersion']})',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
+              _buildDebugSection('Device', [
+                '${deviceInfo['manufacturer']} ${deviceInfo['model']}',
+                'Android ${deviceInfo['release']} (API ${deviceInfo['androidVersion']})',
+              ]),
               const SizedBox(height: 16),
-              const Text('Camera:', style: TextStyle(color: OceanColors.aquamarine, fontWeight: FontWeight.bold)),
-              Text('Front: ${cameraInfo['frontCameraId']}',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
-              Text('Back: ${cameraInfo['backCameraId']}',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
-              Text('Dual Supported: ${cameraInfo['isDualCameraSupported']}',
-                  style: TextStyle(
+              _buildDebugSection('Camera', [
+                'Front: ${cameraInfo['frontCameraId']}',
+                'Back: ${cameraInfo['backCameraId']}',
+              ]),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    cameraInfo['isDualCameraSupported'] == true
+                        ? Icons.check_circle
+                        : Icons.cancel,
                     color: cameraInfo['isDualCameraSupported'] == true
                         ? OceanColors.success
                         : OceanColors.error,
-                  )),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Dual Camera: ${cameraInfo['isDualCameraSupported']}',
+                    style: TextStyle(
+                      color: cameraInfo['isDualCameraSupported'] == true
+                          ? OceanColors.success
+                          : OceanColors.error,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 16),
-              const Text('Layout:', style: TextStyle(color: OceanColors.aquamarine, fontWeight: FontWeight.bold)),
-              Text('Current: ${cameraInfo['currentLayout']}',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
-              Text('Swapped: ${cameraInfo['camerasSwapped']}',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
+              _buildDebugSection('Layout', [
+                'Current: ${cameraInfo['currentLayout']}',
+                'Swapped: ${cameraInfo['camerasSwapped']}',
+              ]),
               const SizedBox(height: 16),
-              const Text('Texture IDs:', style: TextStyle(color: OceanColors.aquamarine, fontWeight: FontWeight.bold)),
-              Text('Front: ${_cameraService.frontTextureId}',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
-              Text('Back: ${_cameraService.backTextureId}',
-                  style: const TextStyle(color: OceanColors.pearlWhite)),
+              _buildDebugSection('Texture IDs', [
+                'Front: ${_cameraService.frontTextureId}',
+                'Back: ${_cameraService.backTextureId}',
+              ]),
             ],
           ),
         ),
@@ -398,19 +621,89 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildLoadingView() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(color: OceanColors.aquamarine),
-          SizedBox(height: 24),
-          Text(
-            'Initializing cameras...',
-            style: TextStyle(color: OceanColors.pearlWhite, fontSize: 16),
+  Widget _buildDebugSection(String title, List<String> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: OceanColors.aquamarine,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        ...items.map((item) => Padding(
+          padding: const EdgeInsets.only(left: 8, top: 2),
+          child: Text(
+            item,
+            style: const TextStyle(color: OceanColors.pearlWhite, fontSize: 13),
+          ),
+        )),
+      ],
+    );
+  }
+
+  Widget _buildLoadingView() {
+    return Stack(
+      children: [
+        // Animated ocean background
+        const OceanAnimatedBackground(
+          showBubbles: true,
+          showFish: false,
+          showJellyfish: true,
+          showWaves: true,
+        ),
+        Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Animated loading indicator
+              AnimatedBuilder(
+                animation: _pulseController,
+                builder: (context, child) {
+                  return Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: OceanColors.aquamarine.withOpacity(0.1),
+                      boxShadow: [
+                        BoxShadow(
+                          color: OceanColors.aquamarine.withOpacity(0.2 + _pulseController.value * 0.2),
+                          blurRadius: 20 + _pulseController.value * 10,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: const CircularProgressIndicator(
+                      color: OceanColors.aquamarine,
+                      strokeWidth: 3,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Initializing cameras...',
+                style: TextStyle(
+                  color: OceanColors.pearlWhite.withOpacity(0.9),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Please wait',
+                style: TextStyle(
+                  color: OceanColors.aquamarine.withOpacity(0.7),
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -507,46 +800,77 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   }
 
   Widget _buildErrorView(String errorMessage) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: OceanColors.error, size: 64),
-            const SizedBox(height: 16),
-            Text(
-              errorMessage,
-              style: const TextStyle(color: OceanColors.pearlWhite),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _initializeCamera,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: OceanColors.aquamarine,
-              ),
-              child: const Text('Retry'),
-            ),
-          ],
+    return Stack(
+      children: [
+        const OceanAnimatedBackground(
+          showBubbles: true,
+          showFish: false,
+          showJellyfish: false,
+          showWaves: true,
         ),
-      ),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: OceanColors.error.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.error_outline, color: OceanColors.error, size: 48),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  errorMessage,
+                  style: const TextStyle(color: OceanColors.pearlWhite),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _initializeCamera,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: OceanColors.aquamarine,
+                    foregroundColor: OceanColors.deepSeaBlue,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildNoPreviewView() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.videocam_off, color: OceanColors.pearlWhite, size: 64),
-          SizedBox(height: 16),
-          Text(
-            'No camera preview available',
-            style: TextStyle(color: OceanColors.pearlWhite),
+    return Stack(
+      children: [
+        const OceanAnimatedBackground(
+          showBubbles: true,
+          showFish: true,
+          showJellyfish: false,
+          showWaves: true,
+        ),
+        const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.videocam_off, color: OceanColors.pearlWhite, size: 64),
+              SizedBox(height: 16),
+              Text(
+                'No camera preview available',
+                style: TextStyle(color: OceanColors.pearlWhite),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -634,7 +958,7 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
         // PiP camera (small overlay)
         if (hasSecondary && secondaryId != null)
           Positioned(
-            top: pipPosition == Alignment.topLeft || pipPosition == Alignment.topRight ? 16 : null,
+            top: pipPosition == Alignment.topLeft || pipPosition == Alignment.topRight ? 80 : null,
             bottom: pipPosition == Alignment.bottomLeft || pipPosition == Alignment.bottomRight ? 16 : null,
             left: pipPosition == Alignment.topLeft || pipPosition == Alignment.bottomLeft ? 16 : null,
             right: pipPosition == Alignment.topRight || pipPosition == Alignment.bottomRight ? 16 : null,
@@ -650,8 +974,8 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
                   border: Border.all(color: OceanColors.aquamarine, width: 2),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withAlpha(100),
-                      blurRadius: 8,
+                      color: OceanColors.aquamarine.withOpacity(0.3),
+                      blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
                   ],
@@ -708,6 +1032,7 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
               decoration: BoxDecoration(
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: OceanColors.aquamarine.withOpacity(0.3)),
               ),
               child: const Text(
                 'Single Camera Mode',
@@ -731,7 +1056,7 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
 
   Widget _buildCameraLabel(String label, Alignment alignment) {
     return Positioned(
-      top: alignment.y < 0 ? 8 : null,
+      top: alignment.y < 0 ? 80 : null,
       bottom: alignment.y > 0 ? 8 : null,
       left: alignment.x < 0 ? 8 : (alignment.x == 0 ? 0 : null),
       right: alignment.x > 0 ? 8 : (alignment.x == 0 ? 0 : null),
@@ -747,6 +1072,7 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
       decoration: BoxDecoration(
         color: Colors.black54,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: OceanColors.aquamarine.withOpacity(0.3)),
       ),
       child: Text(
         label,
@@ -761,10 +1087,24 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
 
   Widget _buildControlsArea() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      decoration: const BoxDecoration(
-        color: OceanColors.deepSeaBlue,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            OceanColors.deepSeaBlue.withOpacity(0.9),
+            OceanColors.deepSeaBlue,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [
+          BoxShadow(
+            color: OceanColors.aquamarine.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
       ),
       child: Obx(() {
         final isRecording = _cameraService.isRecording;
@@ -779,50 +1119,16 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isDualMode ? OceanColors.success.withAlpha(50) : OceanColors.warning.withAlpha(50),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isDualMode ? OceanColors.success : OceanColors.warning,
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isDualMode ? Icons.check_circle : Icons.info,
-                        color: isDualMode ? OceanColors.success : OceanColors.warning,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isDualMode ? 'Dual' : 'Single',
-                        style: TextStyle(
-                          color: isDualMode ? OceanColors.success : OceanColors.warning,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
+                _buildModeChip(
+                  isDualMode ? 'Dual' : 'Single',
+                  isDualMode ? Icons.check_circle : Icons.info,
+                  isDualMode ? OceanColors.success : OceanColors.warning,
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white10,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    currentLayout.displayName,
-                    style: const TextStyle(
-                      color: OceanColors.pearlWhite,
-                      fontSize: 12,
-                    ),
-                  ),
+                _buildModeChip(
+                  currentLayout.displayName,
+                  Icons.grid_view,
+                  OceanColors.aquamarine,
                 ),
               ],
             ),
@@ -833,16 +1139,25 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  ScaleTransition(
-                    scale: Tween(begin: 0.8, end: 1.0).animate(_pulseController),
-                    child: Container(
-                      width: 12,
-                      height: 12,
-                      decoration: const BoxDecoration(
-                        color: OceanColors.error,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
+                  AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, child) {
+                      return Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: OceanColors.error,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: OceanColors.error.withOpacity(0.5 + _pulseController.value * 0.3),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -874,13 +1189,11 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
                 // Record button
                 _buildRecordButton(isRecording),
 
-                // Gallery button - opens device gallery
+                // Placeholder for symmetry (removed gallery button)
                 _buildControlButton(
-                  icon: Icons.photo_library,
-                  label: 'Gallery',
-                  onPressed: isRecording
-                      ? null
-                      : () => _openDeviceGallery(),
+                  icon: Icons.settings,
+                  label: 'Settings',
+                  onPressed: isRecording ? null : _showLayoutPicker,
                   color: OceanColors.pearlWhite,
                 ),
               ],
@@ -888,6 +1201,32 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
           ],
         );
       }),
+    );
+  }
+
+  Widget _buildModeChip(String label, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -903,15 +1242,30 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          onPressed: onPressed,
-          icon: Icon(icon, color: displayColor, size: 28),
-          style: IconButton.styleFrom(
-            side: BorderSide(color: displayColor, width: 2),
-            padding: const EdgeInsets.all(12),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(30),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: displayColor, width: 2),
+                boxShadow: !isDisabled
+                    ? [
+                        BoxShadow(
+                          color: displayColor.withOpacity(0.2),
+                          blurRadius: 8,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Icon(icon, color: displayColor, size: 24),
+            ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           label,
           style: TextStyle(color: displayColor, fontSize: 12),
@@ -923,22 +1277,39 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   Widget _buildRecordButton(bool isRecording) {
     return GestureDetector(
       onTap: isRecording ? _stopRecording : _startRecording,
-      child: Container(
-        width: 72,
-        height: 72,
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: OceanColors.pearlWhite, width: 3),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            shape: isRecording ? BoxShape.rectangle : BoxShape.circle,
-            borderRadius: isRecording ? BorderRadius.circular(8) : null,
-            color: OceanColors.error,
-          ),
-          child: isRecording ? const Icon(Icons.stop, color: OceanColors.pearlWhite, size: 32) : null,
-        ),
+      child: AnimatedBuilder(
+        animation: _glowController,
+        builder: (context, child) {
+          return Container(
+            width: 76,
+            height: 76,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: OceanColors.pearlWhite, width: 3),
+              boxShadow: isRecording
+                  ? [
+                      BoxShadow(
+                        color: OceanColors.error.withOpacity(0.4 + _glowController.value * 0.2),
+                        blurRadius: 16,
+                        spreadRadius: 4,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              decoration: BoxDecoration(
+                shape: isRecording ? BoxShape.rectangle : BoxShape.circle,
+                borderRadius: isRecording ? BorderRadius.circular(8) : null,
+                color: OceanColors.error,
+              ),
+              child: isRecording
+                  ? const Icon(Icons.stop, color: OceanColors.pearlWhite, size: 32)
+                  : null,
+            ),
+          );
+        },
       ),
     );
   }
@@ -952,6 +1323,8 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   @override
   void dispose() {
     _pulseController.dispose();
+    _waveController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 }

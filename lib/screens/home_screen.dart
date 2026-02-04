@@ -10,8 +10,8 @@ import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
 import '../widgets/glassmorphic_card.dart';
 import '../widgets/ocean_button.dart';
+import '../widgets/ocean_animations.dart';
 import 'recording_screen.dart';
-import 'gallery_screen.dart';
 
 /// Home/Main screen displaying device capability status and navigation
 class HomeScreen extends StatefulWidget {
@@ -21,30 +21,43 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late RecordingService _recordingService;
   bool _permissionsGranted = false;
-  late AnimationController _animationController;
+  late AnimationController _fadeController;
+  late AnimationController _floatController;
   late Animation<double> _fadeAnimation;
+  late Animation<double> _floatAnimation;
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
+    _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
     _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
+      parent: _fadeController,
       curve: Curves.easeIn,
     );
-    _animationController.forward();
+
+    _floatController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
+
+    _floatAnimation = Tween<double>(begin: 0, end: 10).animate(
+      CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
+    );
+
+    _fadeController.forward();
     _initializeApp();
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    _fadeController.dispose();
+    _floatController.dispose();
     super.dispose();
   }
 
@@ -101,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
          if (mounted) {
            ScaffoldMessenger.of(context).showSnackBar(
              const SnackBar(
-               content: Text('❌ Camera and storage permissions are required'),
+               content: Text('Camera and storage permissions are required'),
                duration: Duration(seconds: 4),
                backgroundColor: OceanColors.error,
              ),
@@ -132,22 +145,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       backgroundColor: OceanColors.deepSeaBlue,
       body: Stack(
         children: [
-          // Background Gradient
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  OceanColors.deepSeaBlue,
-                  Color(0xFF001529),
-                ],
-              ),
-            ),
+          // Animated Ocean Background with creatures
+          const OceanAnimatedBackground(
+            showBubbles: true,
+            showFish: true,
+            showJellyfish: true,
+            showWaves: true,
           ),
-          
-          // Animated Bubbles or shapes could go here
-          
+
           SafeArea(
             child: Consumer<CameraProvider>(
               builder: (context, cameraProvider, child) {
@@ -193,41 +198,88 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildHeader() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: OceanColors.aquamarine.withOpacity(0.1),
-            border: Border.all(color: OceanColors.aquamarine.withOpacity(0.3), width: 2),
+    return AnimatedBuilder(
+      animation: _floatAnimation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, -_floatAnimation.value),
+          child: Column(
+            children: [
+              // Animated camera icon with glow effect
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: OceanColors.aquamarine.withOpacity(0.1),
+                  border: Border.all(
+                    color: OceanColors.aquamarine.withOpacity(0.3),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: OceanColors.aquamarine.withOpacity(0.2),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
+                child: ShaderMask(
+                  shaderCallback: (bounds) => LinearGradient(
+                    colors: [
+                      OceanColors.aquamarine,
+                      OceanColors.vibrantTeal,
+                    ],
+                  ).createShader(bounds),
+                  child: const Icon(
+                    Icons.camera_rounded,
+                    size: 64,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Title with gradient
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [
+                    OceanColors.pearlWhite,
+                    OceanColors.aquamarine,
+                  ],
+                ).createShader(bounds),
+                child: const Text(
+                  'DUAL RECORDER',
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Capture every perspective',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: OceanColors.pearlWhite.withOpacity(0.7),
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              // Decorative wave line
+              SizedBox(
+                width: 100,
+                height: 20,
+                child: CustomPaint(
+                  painter: _WaveLinePainter(
+                    color: OceanColors.aquamarine.withOpacity(0.5),
+                  ),
+                ),
+              ),
+            ],
           ),
-          child: const Icon(
-            Icons.camera_rounded,
-            size: 64,
-            color: OceanColors.aquamarine,
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'DUAL RECORDER',
-          style: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
-            color: OceanColors.pearlWhite,
-            letterSpacing: 4,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Capture every perspective',
-          style: TextStyle(
-            fontSize: 16,
-            color: OceanColors.pearlWhite.withOpacity(0.7),
-            letterSpacing: 1.2,
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -243,10 +295,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         children: [
           Row(
             children: [
-              Icon(
-                isSupported ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-                color: isSupported ? OceanColors.success : OceanColors.warning,
-                size: 24,
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (isSupported ? OceanColors.success : OceanColors.warning)
+                      .withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isSupported ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                  color: isSupported ? OceanColors.success : OceanColors.warning,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               const Text(
@@ -260,22 +320,43 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ],
           ),
           const Divider(color: Colors.white24, height: 24),
-          _buildInfoRow('Model', capability.deviceModel),
-          _buildInfoRow('Concurrent', isSupported ? 'Available' : 'Limited'),
-          _buildInfoRow('Cameras Found', '${capability.availableCameras.length}'),
+          _buildInfoRow('Model', capability.deviceModel, Icons.phone_android),
+          _buildInfoRow(
+            'Concurrent',
+            isSupported ? 'Available' : 'Limited',
+            isSupported ? Icons.check : Icons.warning_amber,
+            valueColor: isSupported ? OceanColors.success : OceanColors.warning,
+          ),
+          _buildInfoRow(
+            'Cameras Found',
+            '${capability.availableCameras.length}',
+            Icons.camera_alt,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  Widget _buildInfoRow(String label, String value, IconData icon, {Color? valueColor}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 14)),
-          Text(value, style: const TextStyle(color: OceanColors.pearlWhite, fontWeight: FontWeight.w600, fontSize: 14)),
+          Icon(icon, size: 18, color: OceanColors.aquamarine.withOpacity(0.7)),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? OceanColors.pearlWhite,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
         ],
       ),
     );
@@ -319,19 +400,43 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           },
           icon: Icons.videocam_rounded,
         ),
-        const SizedBox(height: 20),
-        OceanButton(
-          label: 'VIEW GALLERY',
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const GalleryScreen()),
-            );
-          },
-          icon: Icons.photo_library_rounded,
-          variant: ButtonVariant.secondary,
-        ),
       ],
     );
   }
 }
 
+/// Custom painter for decorative wave line
+class _WaveLinePainter extends CustomPainter {
+  final Color color;
+
+  _WaveLinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+
+    final path = Path();
+    path.moveTo(0, size.height / 2);
+
+    for (double x = 0; x <= size.width; x += 1) {
+      final y = size.height / 2 +
+          (size.height / 4) * 
+          (x / size.width < 0.5 
+            ? (x / size.width) * 2 
+            : 2 - (x / size.width) * 2) *
+          (0.5 + 0.5 * (1 - (2 * (x / size.width) - 1).abs()));
+      path.lineTo(x, size.height / 2 + 
+          8 * (0.5 - (x / size.width - 0.5).abs()) * 
+          (x % 20 < 10 ? 1 : -1));
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}

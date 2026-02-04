@@ -566,16 +566,26 @@ class DualCameraManager(
                 val result = mutableMapOf<String, String?>()
                 
                 if (videoPath != null) {
-                    result["composedVideo"] = videoPath
-                    
-                    // Save to gallery on background thread
-                    saveVideoToGallery(videoPath)
-                    Log.d(TAG, "Recording stopped: $videoPath")
+                    // Verify the video file exists and is valid
+                    val videoFile = File(videoPath)
+                    if (videoFile.exists() && videoFile.length() > 0) {
+                        result["composedVideo"] = videoPath
+                        
+                        // Save to gallery on background thread
+                        val savedToGallery = saveVideoToGallery(videoPath)
+                        Log.d(TAG, "Recording stopped: $videoPath, saved to gallery: $savedToGallery")
+                    } else {
+                        Log.e(TAG, "Video file is invalid or empty: $videoPath")
+                    }
                 }
 
                 // Call back on main thread
                 Handler(context.mainLooper).post {
-                    callback(result)
+                    if (result.isNotEmpty()) {
+                        callback(result)
+                    } else {
+                        callback(null)
+                    }
                 }
 
             } catch (e: Exception) {
@@ -587,17 +597,17 @@ class DualCameraManager(
         }
     }
 
-    private fun saveVideoToGallery(videoPath: String) {
+    private fun saveVideoToGallery(videoPath: String): Boolean {
         try {
             val file = File(videoPath)
             if (!file.exists()) {
                 Log.e(TAG, "Video file doesn't exist: $videoPath")
-                return
+                return false
             }
             
             if (file.length() == 0L) {
                 Log.e(TAG, "Video file is empty: $videoPath")
-                return
+                return false
             }
 
             Log.d(TAG, "Saving video to gallery: ${file.length()} bytes")
@@ -611,24 +621,38 @@ class DualCameraManager(
                 }
 
                 val uri = context.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-                uri?.let {
-                    context.contentResolver.openOutputStream(it)?.use { outputStream ->
-                        file.inputStream().use { inputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
-                    values.clear()
-                    values.put(MediaStore.Video.Media.IS_PENDING, 0)
-                    context.contentResolver.update(uri, values, null, null)
-                    Log.d(TAG, "Video saved to gallery: $uri")
+                if (uri == null) {
+                    Log.e(TAG, "Failed to create MediaStore entry for video")
+                    return false
                 }
+                
+                val outputStream = context.contentResolver.openOutputStream(uri)
+                if (outputStream == null) {
+                    Log.e(TAG, "Failed to open output stream for video")
+                    context.contentResolver.delete(uri, null, null)
+                    return false
+                }
+                
+                outputStream.use { os ->
+                    file.inputStream().use { inputStream ->
+                        inputStream.copyTo(os)
+                    }
+                }
+                
+                values.clear()
+                values.put(MediaStore.Video.Media.IS_PENDING, 0)
+                context.contentResolver.update(uri, values, null, null)
+                Log.d(TAG, "Video saved to gallery successfully: $uri")
+                return true
             } else {
                 MediaScannerConnection.scanFile(context, arrayOf(videoPath), arrayOf("video/mp4")) { path, uri ->
                     Log.d(TAG, "Video scanned: $uri")
                 }
+                return true
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error saving to gallery", e)
+            return false
         }
     }
 
@@ -855,25 +879,59 @@ class DualCameraManager(
                     put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                     put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                     put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/DualRecorder")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
 
                 val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                uri?.let {
-                    context.contentResolver.openOutputStream(it)?.use { os ->
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, os)
-                    }
-                    Log.d(TAG, "Composed photo saved: $uri")
-                    return uri.toString()
+                if (uri == null) {
+                    Log.e(TAG, "Failed to create MediaStore entry for photo")
+                    return null
                 }
-            } else {
-                val storageDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "DualRecorder")
-                if (!storageDir.exists()) storageDir.mkdirs()
-                val photoFile = File(storageDir, filename)
-                FileOutputStream(photoFile).use { os ->
+                
+                val outputStream = context.contentResolver.openOutputStream(uri)
+                if (outputStream == null) {
+                    Log.e(TAG, "Failed to open output stream for photo")
+                    context.contentResolver.delete(uri, null, null)
+                    return null
+                }
+                
+                val success = outputStream.use { os ->
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 95, os)
                 }
+                
+                if (!success) {
+                    Log.e(TAG, "Failed to compress bitmap to JPEG")
+                    context.contentResolver.delete(uri, null, null)
+                    return null
+                }
+                
+                // Mark as no longer pending
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                context.contentResolver.update(uri, values, null, null)
+                
+                Log.d(TAG, "Composed photo saved successfully: $uri")
+                return uri.toString()
+            } else {
+                val storageDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "DualRecorder")
+                if (!storageDir.exists() && !storageDir.mkdirs()) {
+                    Log.e(TAG, "Failed to create storage directory")
+                    return null
+                }
+                
+                val photoFile = File(storageDir, filename)
+                val success = FileOutputStream(photoFile).use { os ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, os)
+                }
+                
+                if (!success || !photoFile.exists() || photoFile.length() == 0L) {
+                    Log.e(TAG, "Failed to save photo file")
+                    photoFile.delete()
+                    return null
+                }
+                
                 MediaScannerConnection.scanFile(context, arrayOf(photoFile.absolutePath), arrayOf("image/jpeg"), null)
-                Log.d(TAG, "Composed photo saved: ${photoFile.absolutePath}")
+                Log.d(TAG, "Composed photo saved successfully: ${photoFile.absolutePath}")
                 return photoFile.absolutePath
             }
         } catch (e: Exception) {
