@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../theme/ocean_colors.dart';
-import '../utils/logger.dart';
 
-/// Widget to display camera preview
-class CameraPreviewWidget extends StatefulWidget {
+/// Widget to display camera preview with error handling
+class CameraPreviewWidget extends StatelessWidget {
   final CameraController controller;
   final BoxFit fit;
   final Function(Exception)? onError;
@@ -17,91 +16,65 @@ class CameraPreviewWidget extends StatefulWidget {
   });
 
   @override
-  State<CameraPreviewWidget> createState() => _CameraPreviewWidgetState();
-}
-
-class _CameraPreviewWidgetState extends State<CameraPreviewWidget> {
-  @override
-  void initState() {
-    super.initState();
-    _initializePreview();
-  }
-
-  Future<void> _initializePreview() async {
-    try {
-      if (!widget.controller.value.isInitialized) {
-        await widget.controller.initialize();
-        if (mounted) {
-          setState(() {});
-        }
-        AppLogger.info('Camera preview initialized');
-      }
-    } catch (e) {
-      AppLogger.error('Failed to initialize camera preview', error: e);
-      if (widget.onError != null) {
-        widget.onError!(Exception('Failed to initialize camera: $e'));
-      }
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (!widget.controller.value.isInitialized) {
+    // Check if controller is initialized
+    if (!controller.value.isInitialized) {
       return Container(
         color: OceanColors.deepSeaBlue,
         child: const Center(
-          child: CircularProgressIndicator(),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: OceanColors.aquamarine),
+              SizedBox(height: 16),
+              Text(
+                'Initializing camera...',
+                style: TextStyle(color: OceanColors.pearlWhite),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return SizedBox.expand(
-      child: Stack(
-        children: [
-          // Camera preview
-          CameraPreview(widget.controller),
-          // Recording indicator overlay
-          if (widget.controller.value.isRecordingVideo)
-            Positioned(
-              top: 16,
-              left: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: OceanColors.error.withAlpha((0.9 * 255).toInt()),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: OceanColors.pearlWhite,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'REC',
-                      style: TextStyle(
-                        color: OceanColors.pearlWhite,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
+    // Check for errors
+    if (controller.value.hasError) {
+      return Container(
+        color: OceanColors.deepSeaBlue,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: OceanColors.error, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                'Camera Error',
+                style: const TextStyle(color: OceanColors.error, fontWeight: FontWeight.bold),
               ),
-            ),
-        ],
+              const SizedBox(height: 8),
+              Text(
+                controller.value.errorDescription ?? 'Unknown error',
+                style: const TextStyle(color: OceanColors.pearlWhite, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.center,
+        child: FittedBox(
+          fit: fit,
+          child: SizedBox(
+            width: controller.value.previewSize?.height ?? 480,
+            height: controller.value.previewSize?.width ?? 640,
+            child: CameraPreview(controller),
+          ),
+        ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 }

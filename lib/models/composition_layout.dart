@@ -1,0 +1,4 @@
+enum CompositionLayout {
+  split,
+  pip,
+}
