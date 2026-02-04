@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:camera/camera.dart';
 
 import '../services/recording_service.dart';
 import '../services/file_storage_service.dart';
@@ -7,6 +8,8 @@ import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
 import '../widgets/recording_timer.dart';
 import '../widgets/camera_preview_widget.dart';
+import '../widgets/ocean_app_bar.dart';
+import 'gallery_screen.dart';
 
 /// Screen for recording from dual cameras
 class RecordingScreen extends StatefulWidget {
@@ -51,8 +54,8 @@ class _RecordingScreenState extends State<RecordingScreen>
       }
       _recordingService = Get.find<RecordingService>();
 
-      // Initialize cameras
-      await _recordingService.initializeCameras();
+      // Initialize cameras - use ResolutionPreset.medium to avoid bandwidth issues on dual capture
+      await _recordingService.initializeCameras(resolution: ResolutionPreset.medium);
     } catch (e) {
       AppLogger.error('Failed to initialize recording services', error: e);
       if (mounted) {
@@ -155,16 +158,50 @@ class _RecordingScreenState extends State<RecordingScreen>
     }
   }
 
+  Future<void> _takePhoto() async {
+    try {
+      final recordingsDir = await FileStorageService.getRecordingsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      
+      final pictures = await _recordingService.takePicture();
+      
+      for (var i = 0; i < pictures.length; i++) {
+        final prefix = i == 0 ? 'back' : 'front';
+        final filename = 'photo_${prefix}_$timestamp.jpg';
+        final outputPath = '${recordingsDir.path}/$filename';
+        await pictures[i].saveTo(outputPath);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('📸 ${pictures.length} Photo(s) captured'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: OceanColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      AppLogger.error('Failed to take photo', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to take photo: $e'),
+            backgroundColor: OceanColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dual Camera Recording'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        elevation: 0,
+      extendBodyBehindAppBar: true,
+      appBar: OceanAppBar(
+        title: 'Dual Camera',
+        onBackPressed: () => Navigator.pop(context),
+        showGradient: false, // Let the background show through
       ),
       body: Container(
         color: OceanColors.deepSeaBlue,
@@ -414,170 +451,159 @@ class _RecordingScreenState extends State<RecordingScreen>
         CurvedAnimation(parent: _slideController, curve: Curves.easeOut),
       ),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 30.0),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              OceanColors.pearlWhite,
-              OceanColors.pearlWhite.withAlpha((0.95 * 255).toInt()),
-            ],
-          ),
+          color: OceanColors.deepSeaBlue,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           boxShadow: [
             BoxShadow(
-              color: OceanColors.deepSeaBlue.withAlpha((0.2 * 255).toInt()),
-              blurRadius: 12,
-              offset: const Offset(0, -4),
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
             ),
           ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Recording status indicator
-            Obx(
-              () => Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+            // Status Indicator
+            Obx(() => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: _recordingService.isRecording ? OceanColors.error.withOpacity(0.1) : Colors.white10,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_recordingService.isRecording)
+                  if (_recordingService.isRecording && !_recordingService.isPaused)
                     ScaleTransition(
                       scale: Tween<double>(begin: 1, end: 1.2).animate(
-                        CurvedAnimation(
-                          parent: _pulseController,
-                          curve: Curves.easeInOut,
-                        ),
+                        CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
                       ),
                       child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: OceanColors.error,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: OceanColors.error.withAlpha((0.5 * 255).toInt()),
-                              blurRadius: 6,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(color: OceanColors.error, shape: BoxShape.circle),
                       ),
                     ),
-                  if (_recordingService.isRecording) const SizedBox(width: 8),
+                  if (_recordingService.isRecording && !_recordingService.isPaused) const SizedBox(width: 8),
                   Text(
                     _recordingService.isRecording
-                        ? (_recordingService.isPaused ? '⏸ PAUSED' : '🔴 RECORDING')
-                        : '⏹ STOPPED',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        ? (_recordingService.isPaused ? 'PAUSED' : 'RECORDING')
+                        : 'READY',
+                    style: TextStyle(
+                      color: _recordingService.isRecording ? OceanColors.error : Colors.white70,
                       fontWeight: FontWeight.bold,
-                      color: _recordingService.isRecording
-                          ? OceanColors.error
-                          : OceanColors.mediumGray,
-                      fontSize: 16,
+                      fontSize: 12,
+                      letterSpacing: 2,
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
+            )),
+            const SizedBox(height: 32),
             // Control buttons
             Obx(
               () => Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  // Start Record button
-                  AnimatedScale(
-                    scale: !_recordingService.isRecording ? 1.0 : 0.9,
-                    duration: const Duration(milliseconds: 200),
-                    child: FloatingActionButton.extended(
-                      onPressed: !_recordingService.isRecording
-                          ? _startRecording
-                          : null,
-                      backgroundColor: !_recordingService.isRecording
-                          ? OceanColors.success
-                          : OceanColors.mediumGray,
-                      icon: const Icon(Icons.fiber_manual_record),
-                      label: const Text('Record'),
-                      heroTag: 'record',
-                    ),
+                  // Photo button (only if not recording)
+                  _buildControlButton(
+                    onPressed: _recordingService.isRecording ? null : _takePhoto,
+                    icon: Icons.camera_alt,
+                    label: 'PHOTO',
+                    color: _recordingService.isRecording ? Colors.white24 : OceanColors.aquamarine,
                   ),
-                  // Pause/Resume button
-                  AnimatedScale(
-                    scale: _recordingService.isRecording ? 1.0 : 0.9,
-                    duration: const Duration(milliseconds: 200),
-                    child: FloatingActionButton.extended(
-                      onPressed: _recordingService.isRecording
-                          ? (_recordingService.isPaused
-                              ? () async {
-                                  try {
-                                    await _recordingService.resumeRecording();
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('▶ Recording resumed'),
-                                          duration: Duration(seconds: 1),
-                                          backgroundColor: OceanColors.success,
-                                        ),
-                                      );
-                                    }
-                                  } catch (e) {
-                                    AppLogger.error('Failed to resume', error: e);
-                                  }
-                                }
-                              : () async {
-                                  try {
-                                    await _recordingService.pauseRecording();
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('⏸ Recording paused'),
-                                          duration: Duration(seconds: 1),
-                                          backgroundColor: OceanColors.warning,
-                                        ),
-                                      );
-                                    }
-                                  } catch (e) {
-                                    AppLogger.error('Failed to pause', error: e);
-                                  }
-                                })
-                          : null,
-                      backgroundColor: !_recordingService.isRecording
-                          ? OceanColors.mediumGray
-                          : (_recordingService.isPaused
-                              ? OceanColors.success
-                              : OceanColors.warning),
-                      icon: Icon(
-                        _recordingService.isPaused
-                            ? Icons.play_arrow
-                            : Icons.pause,
-                      ),
-                      label: Text(
-                        _recordingService.isPaused ? 'Resume' : 'Pause',
-                      ),
-                      heroTag: 'pauseResume',
+                  
+                  // Start/Stop Record button
+                  _buildMainActionButton(),
+
+                  // Pause/Resume/Gallery button
+                  if (_recordingService.isRecording)
+                    _buildControlButton(
+                      onPressed: _recordingService.isPaused 
+                          ? () => _recordingService.resumeRecording() 
+                          : () => _recordingService.pauseRecording(),
+                      icon: _recordingService.isPaused ? Icons.play_arrow : Icons.pause,
+                      label: _recordingService.isPaused ? 'RESUME' : 'PAUSE',
+                      color: OceanColors.warning,
+                    )
+                  else
+                    _buildControlButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const GalleryScreen()),
+                        );
+                      },
+                      icon: Icons.photo_library,
+                      label: 'GALLERY',
+                      color: OceanColors.pearlWhite,
                     ),
-                  ),
-                  // Stop button
-                  AnimatedScale(
-                    scale: _recordingService.isRecording ? 1.0 : 0.9,
-                    duration: const Duration(milliseconds: 200),
-                    child: FloatingActionButton.extended(
-                      onPressed: _recordingService.isRecording
-                          ? _stopRecording
-                          : null,
-                      backgroundColor: !_recordingService.isRecording
-                          ? OceanColors.mediumGray
-                          : OceanColors.error,
-                      icon: const Icon(Icons.stop),
-                      label: const Text('Stop'),
-                      heroTag: 'stop',
-                    ),
-                  ),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlButton({
+    required VoidCallback? onPressed,
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(30),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: color.withOpacity(0.5), width: 2),
+              ),
+              child: Icon(icon, color: color, size: 28),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMainActionButton() {
+    final isRecording = _recordingService.isRecording;
+    return GestureDetector(
+      onTap: isRecording ? _stopRecording : _startRecording,
+      child: Container(
+        width: 80,
+        height: 80,
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 4),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isRecording ? OceanColors.error : OceanColors.success,
+          ),
+          child: Icon(
+            isRecording ? Icons.stop : Icons.fiber_manual_record,
+            color: Colors.white,
+            size: 40,
+          ),
         ),
       ),
     );

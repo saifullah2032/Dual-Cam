@@ -33,28 +33,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun hasConcurrentCameraSupport(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_INT_CODES.R) {
+            return false // Concurrent camera support was introduced in Android 11 (API 30)
+        }
+        
         return try {
             val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val cameraIds = cameraManager.cameraIdList
-
-            // Check if we have at least 2 cameras
-            if (cameraIds.size < 2) return false
-
-            // Check if we can use Camera2 API
-            var frontCount = 0
-            var backCount = 0
-
-            for (id in cameraIds) {
-                val characteristics = cameraManager.getCameraCharacteristics(id)
-                val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
-
-                when (facing) {
-                    CameraCharacteristics.LENS_FACING_FRONT -> frontCount++
-                    CameraCharacteristics.LENS_FACING_BACK -> backCount++
-                }
-            }
-
-            frontCount > 0 && backCount > 0
+            val concurrentSets = cameraManager.getConcurrentCameraIds()
+            concurrentSets.isNotEmpty()
         } catch (e: Exception) {
             false
         }

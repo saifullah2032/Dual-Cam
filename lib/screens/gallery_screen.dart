@@ -5,9 +5,11 @@ import 'package:intl/intl.dart';
 import '../services/file_storage_service.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
+import '../widgets/ocean_app_bar.dart';
+import '../widgets/glassmorphic_card.dart';
 import 'video_player_screen.dart';
 
-/// Screen for viewing recorded videos
+/// Screen for viewing recorded videos and captured photos
 class GalleryScreen extends StatefulWidget {
   const GalleryScreen({super.key});
 
@@ -16,174 +18,205 @@ class GalleryScreen extends StatefulWidget {
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
-  late Future<List<File>> _recordingsFuture;
+  late Future<List<File>> _filesFuture;
 
   @override
   void initState() {
     super.initState();
-    _loadRecordings();
+    _loadFiles();
   }
 
-  void _loadRecordings() {
-    _recordingsFuture = FileStorageService.getRecordings();
+  void _loadFiles() {
+    _filesFuture = FileStorageService.getFiles();
   }
 
-  Future<void> _deleteRecording(String filePath) async {
+  Future<void> _deleteFile(String filePath) async {
     try {
       await FileStorageService.deleteRecording(filePath);
       setState(() {
-        _loadRecordings();
+        _loadFiles();
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recording deleted')),
+          const SnackBar(
+            content: Text('Item deleted'),
+            backgroundColor: OceanColors.success,
+          ),
         );
       }
     } catch (e) {
-      AppLogger.error('Failed to delete recording', error: e);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete: $e')),
-        );
-      }
+      AppLogger.error('Failed to delete file', error: e);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Gallery'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
+      backgroundColor: OceanColors.deepSeaBlue,
+      extendBodyBehindAppBar: true,
+      appBar: OceanAppBar(
+        title: 'Gallery',
+        onBackPressed: () => Navigator.pop(context),
+        showGradient: false,
       ),
-      body: FutureBuilder<List<File>>(
-        future: _recordingsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [OceanColors.deepSeaBlue, Color(0xFF001529)],
+          ),
+        ),
+        child: SafeArea(
+          child: FutureBuilder<List<File>>(
+            future: _filesFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(color: OceanColors.aquamarine),
+                );
+              }
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('Error: ${snapshot.error}'),
-            );
-          }
+              final files = snapshot.data ?? [];
 
-          final recordings = snapshot.data ?? [];
+              if (files.isEmpty) {
+                return _buildEmptyState();
+              }
 
-          if (recordings.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.videocam_off,
-                    size: 48,
-                    color: OceanColors.mediumGray,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No recordings yet',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Start recording to see your videos here',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(8),
-            itemCount: recordings.length,
-            itemBuilder: (context, index) {
-              final file = recordings[index];
-              return _buildRecordingTile(context, file);
+              return GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 0.85,
+                ),
+                itemCount: files.length,
+                itemBuilder: (context, index) => _buildFileCard(context, files[index]),
+              );
             },
-          );
-        },
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildRecordingTile(BuildContext context, File file) {
-    final stat = file.statSync();
-    final size = stat.size / (1024 * 1024); // Convert to MB
-    final modified = stat.modified;
-    final formatter = DateFormat('yyyy-MM-dd HH:mm');
-    final filename = file.path.split('/').last;
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.photo_library_outlined, size: 80, color: Colors.white24),
+          const SizedBox(height: 24),
+          const Text(
+            'Your gallery is empty',
+            style: TextStyle(color: OceanColors.pearlWhite, fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Captured media will appear here',
+            style: TextStyle(color: Colors.white54, fontSize: 16),
+          ),
+        ],
+      ),
+    );
+  }
 
-    return Card(
-      child: ListTile(
-        leading: Icon(
-          Icons.video_library,
-          color: OceanColors.accentTeal,
-        ),
-        title: Text(filename),
-        subtitle: Column(
+  Widget _buildFileCard(BuildContext context, File file) {
+    final isVideo = file.path.endsWith('.mp4');
+    final stat = file.statSync();
+    final modified = stat.modified;
+    final formatter = DateFormat('MMM dd, HH:mm');
+    final filename = file.path.split(Platform.pathSeparator).last;
+
+    return GlassmorphicCard(
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        onTap: () {
+          if (isVideo) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => VideoPlayerScreen(videoFile: file)),
+            );
+          } else {
+            _showImagePreview(context, file);
+          }
+        },
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 4),
-            Text(
-              '${formatter.format(modified)} • ${size.toStringAsFixed(2)} MB',
-              style: Theme.of(context).textTheme.bodySmall,
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (isVideo)
+                      const Icon(Icons.play_circle_outline, color: OceanColors.aquamarine, size: 48)
+                    else
+                      const Icon(Icons.image_outlined, color: OceanColors.accentTeal, size: 48),
+                    
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: GestureDetector(
+                        onTap: () => _showDeleteConfirmation(context, file),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                          child: const Icon(Icons.delete_outline, color: OceanColors.error, size: 18),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    filename,
+                    style: const TextStyle(color: OceanColors.pearlWhite, fontSize: 12, fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    formatter.format(modified),
+                    style: const TextStyle(color: Colors.white54, fontSize: 10),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        trailing: PopupMenuButton(
-          itemBuilder: (context) => [
-             PopupMenuItem(
-               child: const Row(
-                 children: [
-                   Icon(Icons.play_arrow),
-                   SizedBox(width: 8),
-                   Text('Play'),
-                 ],
-               ),
-               onTap: () {
-                 Navigator.of(context).push(
-                   MaterialPageRoute(
-                     builder: (_) => VideoPlayerScreen(videoFile: file),
-                   ),
-                 );
-               },
-             ),
-            PopupMenuItem(
-              child: const Row(
-                children: [
-                  Icon(Icons.share),
-                  SizedBox(width: 8),
-                  Text('Share'),
-                ],
-              ),
-              onTap: () {
-                // TODO: Implement sharing
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Sharing feature coming soon'),
-                  ),
-                );
-              },
+      ),
+    );
+  }
+
+  void _showImagePreview(BuildContext context, File file) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(file),
             ),
-            PopupMenuItem(
-              child: const Row(
-                children: [
-                  Icon(Icons.delete, color: OceanColors.error),
-                  SizedBox(width: 8),
-                  Text('Delete', style: TextStyle(color: OceanColors.error)),
-                ],
-              ),
-              onTap: () {
-                _showDeleteConfirmation(context, file);
-              },
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
             ),
           ],
         ),
@@ -195,25 +228,21 @@ class _GalleryScreenState extends State<GalleryScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Recording'),
-        content: const Text('Are you sure you want to delete this recording?'),
+        backgroundColor: OceanColors.deepSeaBlue,
+        title: const Text('Delete Item', style: TextStyle(color: OceanColors.pearlWhite)),
+        content: const Text('Are you sure you want to delete this item?', style: TextStyle(color: Colors.white70)),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _deleteRecording(file.path);
+              _deleteFile(file.path);
             },
-            style: TextButton.styleFrom(
-              foregroundColor: OceanColors.error,
-            ),
-            child: const Text('Delete'),
+            child: const Text('DELETE', style: TextStyle(color: OceanColors.error)),
           ),
         ],
       ),
     );
   }
 }
+

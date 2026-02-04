@@ -8,6 +8,8 @@ import '../services/permission_service.dart';
 import '../services/recording_service.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
+import '../widgets/glassmorphic_card.dart';
+import '../widgets/ocean_button.dart';
 import 'recording_screen.dart';
 import 'gallery_screen.dart';
 
@@ -19,14 +21,31 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   late RecordingService _recordingService;
   bool _permissionsGranted = false;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeIn,
+    );
+    _animationController.forward();
     _initializeApp();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeApp() async {
@@ -82,33 +101,15 @@ class _HomeScreenState extends State<HomeScreen> {
          if (mounted) {
            ScaffoldMessenger.of(context).showSnackBar(
              const SnackBar(
-               content: Text('❌ Camera and storage permissions are required to record videos'),
+               content: Text('❌ Camera and storage permissions are required'),
                duration: Duration(seconds: 4),
-               backgroundColor: Colors.red,
-             ),
-           );
-         }
-       } else {
-         if (mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(
-             const SnackBar(
-               content: Text('✅ All permissions granted'),
-               duration: Duration(seconds: 2),
-               backgroundColor: Colors.green,
+               backgroundColor: OceanColors.error,
              ),
            );
          }
        }
      } catch (e) {
        AppLogger.error('Failed to request permissions', error: e);
-       if (mounted) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(
-             content: Text('Permission error: $e'),
-             backgroundColor: Colors.red,
-           ),
-         );
-       }
      }
    }
 
@@ -122,63 +123,71 @@ class _HomeScreenState extends State<HomeScreen> {
       AppLogger.info('Cameras initialized successfully');
     } catch (e) {
       AppLogger.error('Failed to initialize cameras', error: e);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera error: $e')),
-        );
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dual Recorder'),
-      ),
-      body: Consumer<CameraProvider>(
-        builder: (context, cameraProvider, child) {
-          if (cameraProvider.isLoading) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-
-          return SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 24),
-                  // Header
-                  _buildHeader(),
-                  const SizedBox(height: 32),
-
-                  // Camera capability status card
-                  if (cameraProvider.capability != null) ...[
-                    _buildCapabilityCard(context, cameraProvider),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Error message
-                  if (cameraProvider.error != null) ...[
-                    _buildErrorCard(context, cameraProvider),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Start recording button
-                  _buildStartButton(context, cameraProvider),
-                  const SizedBox(height: 16),
-
-                  // Settings button
-                  _buildSettingsButton(context),
-                  const SizedBox(height: 32),
+      backgroundColor: OceanColors.deepSeaBlue,
+      body: Stack(
+        children: [
+          // Background Gradient
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  OceanColors.deepSeaBlue,
+                  Color(0xFF001529),
                 ],
               ),
             ),
-          );
-        },
+          ),
+          
+          // Animated Bubbles or shapes could go here
+          
+          SafeArea(
+            child: Consumer<CameraProvider>(
+              builder: (context, cameraProvider, child) {
+                if (cameraProvider.isLoading) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: OceanColors.aquamarine),
+                  );
+                }
+
+                return FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 60),
+                          _buildHeader(),
+                          const SizedBox(height: 60),
+                          
+                          if (cameraProvider.capability != null)
+                            _buildCapabilityCard(context, cameraProvider),
+                          
+                          if (cameraProvider.error != null)
+                            _buildErrorCard(context, cameraProvider),
+                          
+                          const SizedBox(height: 40),
+                          _buildActionButtons(context, cameraProvider),
+                          const SizedBox(height: 40),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -186,173 +195,143 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHeader() {
     return Column(
       children: [
-        Icon(
-          Icons.videocam,
-          size: 48,
-          color: OceanColors.accentTeal,
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: OceanColors.aquamarine.withOpacity(0.1),
+            border: Border.all(color: OceanColors.aquamarine.withOpacity(0.3), width: 2),
+          ),
+          child: const Icon(
+            Icons.camera_rounded,
+            size: 64,
+            color: OceanColors.aquamarine,
+          ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          'Dual Camera Recorder',
-          style: Theme.of(context).textTheme.displaySmall,
-          textAlign: TextAlign.center,
+        const SizedBox(height: 24),
+        const Text(
+          'DUAL RECORDER',
+          style: TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+            color: OceanColors.pearlWhite,
+            letterSpacing: 4,
+          ),
         ),
         const SizedBox(height: 8),
         Text(
-          'Record from both cameras simultaneously',
-          style: Theme.of(context).textTheme.bodyMedium,
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCapabilityCard(
-    BuildContext context,
-    CameraProvider provider,
-  ) {
-    final capability = provider.capability!;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  capability.supportsConcurrent
-                      ? Icons.check_circle
-                      : Icons.info,
-                  color: capability.supportsConcurrent
-                      ? OceanColors.success
-                      : OceanColors.warning,
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  'Device Capability',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildCapabilityItem(
-              'Device Model',
-              capability.deviceModel,
-            ),
-            const SizedBox(height: 8),
-            _buildCapabilityItem(
-              'Concurrent Recording',
-              capability.supportsConcurrent ? 'Supported' : 'Not Supported',
-            ),
-            const SizedBox(height: 8),
-            _buildCapabilityItem(
-              'Available Cameras',
-              '${capability.availableCameras.length}',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCapabilityItem(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
+          'Capture every perspective',
+          style: TextStyle(
+            fontSize: 16,
+            color: OceanColors.pearlWhite.withOpacity(0.7),
+            letterSpacing: 1.2,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildErrorCard(BuildContext context, CameraProvider provider) {
-    return Card(
-      color: OceanColors.error.withAlpha((0.1 * 255).toInt()),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.error,
-                  color: OceanColors.error,
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  'Error',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: OceanColors.error,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              provider.error ?? 'Unknown error',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: provider.clearError,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: OceanColors.error,
+  Widget _buildCapabilityCard(BuildContext context, CameraProvider provider) {
+    final capability = provider.capability!;
+    final isSupported = capability.supportsConcurrent;
+
+    return GlassmorphicCard(
+      blur: 15,
+      opacity: 0.1,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isSupported ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                color: isSupported ? OceanColors.success : OceanColors.warning,
+                size: 24,
               ),
-              child: const Text('Dismiss'),
-            ),
-          ],
+              const SizedBox(width: 12),
+              const Text(
+                'Device Status',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: OceanColors.pearlWhite,
+                ),
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white24, height: 24),
+          _buildInfoRow('Model', capability.deviceModel),
+          _buildInfoRow('Concurrent', isSupported ? 'Available' : 'Limited'),
+          _buildInfoRow('Cameras Found', '${capability.availableCameras.length}'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          Text(value, style: const TextStyle(color: OceanColors.pearlWhite, fontWeight: FontWeight.w600, fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorCard(BuildContext context, CameraProvider provider) {
+    return Container(
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: OceanColors.error.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: OceanColors.error.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            provider.error!,
+            style: const TextStyle(color: OceanColors.pearlWhite, fontSize: 14),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: provider.clearError,
+            child: const Text('DISMISS', style: TextStyle(color: OceanColors.error, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtons(BuildContext context, CameraProvider provider) {
+    return Column(
+      children: [
+        OceanButton(
+          label: 'START CAMERA',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RecordingScreen()),
+            );
+          },
+          icon: Icons.videocam_rounded,
         ),
-      ),
-    );
-  }
-
-  Widget _buildStartButton(BuildContext context, CameraProvider provider) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton.icon(
-        onPressed: provider.supportsConcurrentRecording ||
-                provider.capability != null
-            ? () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const RecordingScreen(),
-            ),
-          );
-        }
-            : null,
-        icon: const Icon(Icons.videocam),
-        label: const Text('Start Recording'),
-      ),
-    );
-  }
-
-  Widget _buildSettingsButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: OutlinedButton.icon(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const GalleryScreen(),
-            ),
-          );
-        },
-        icon: const Icon(Icons.photo_library),
-        label: const Text('Gallery'),
-      ),
+        const SizedBox(height: 20),
+        OceanButton(
+          label: 'VIEW GALLERY',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GalleryScreen()),
+            );
+          },
+          icon: Icons.photo_library_rounded,
+          variant: ButtonVariant.secondary,
+        ),
+      ],
     );
   }
 }
+

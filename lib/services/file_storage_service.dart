@@ -146,14 +146,14 @@ class FileStorageService {
     }
   }
 
-  /// List all recordings
-  static Future<List<File>> getRecordings() async {
+  /// List all recordings (videos and photos)
+  static Future<List<File>> getFiles() async {
     try {
       final recordingsDir = await getRecordingsDirectory();
       final files = recordingsDir
           .listSync()
           .whereType<File>()
-          .where((f) => f.path.endsWith('.mp4'))
+          .where((f) => f.path.endsWith('.mp4') || f.path.endsWith('.jpg'))
           .toList();
 
       // Sort by modified time (newest first)
@@ -161,9 +161,14 @@ class FileStorageService {
 
       return files;
     } catch (e) {
-      AppLogger.error('Failed to list recordings', error: e);
+      AppLogger.error('Failed to list files', error: e);
       return [];
     }
+  }
+
+  /// List all recordings (videos only) - kept for backward compatibility if needed
+  static Future<List<File>> getRecordings() async {
+    return getFiles();
   }
 
   /// Clean up temporary files
