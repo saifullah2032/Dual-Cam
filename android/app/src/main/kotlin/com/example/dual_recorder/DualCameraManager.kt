@@ -119,7 +119,7 @@ class DualCameraManager(
 
     // Photo capture
     private var photoCaptureCallback: ((Map<String, String?>?) -> Unit)? = null
-    private var pendingPhotos = mutableMapOf<String, String?>()
+    private var pendingPhotoBitmaps = mutableMapOf<String, Bitmap?>()
     private var photosExpected = 0
 
     // Frame processing optimization
@@ -634,7 +634,7 @@ class DualCameraManager(
 
     fun takePicture(callback: (Map<String, String?>?) -> Unit) {
         photoCaptureCallback = callback
-        pendingPhotos.clear()
+        pendingPhotoBitmaps.clear()
         
         val hasBack = backCamera != null && backCaptureSession != null
         val hasFront = frontCamera != null && frontCaptureSession != null && isDualCameraSupported
@@ -672,29 +672,184 @@ class DualCameraManager(
             imageReader.setOnImageAvailableListener({ reader ->
                 val image = reader.acquireLatestImage()
                 image?.use {
-                    savePhoto(it, isBack, timestamp)
+                    processPhotoBitmap(it, isBack, timestamp)
                 }
             }, backgroundHandler)
 
             session.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureFailed(session: CameraCaptureSession, request: CaptureRequest, failure: CaptureFailure) {
-                    onPhotoSaved(if (isBack) "backPhoto" else "frontPhoto", null)
+                    onPhotoCaptured(if (isBack) "back" else "front", null, timestamp)
                 }
             }, backgroundHandler)
         } catch (e: Exception) {
-            onPhotoSaved(if (isBack) "backPhoto" else "frontPhoto", null)
+            onPhotoCaptured(if (isBack) "back" else "front", null, timestamp)
         }
     }
 
-    private fun savePhoto(image: Image, isBack: Boolean, timestamp: String) {
+    private fun processPhotoBitmap(image: Image, isBack: Boolean, timestamp: String) {
         try {
             val buffer = image.planes[0].buffer
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
+            
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            onPhotoCaptured(if (isBack) "back" else "front", bitmap, timestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing photo", e)
+            onPhotoCaptured(if (isBack) "back" else "front", null, timestamp)
+        }
+    }
 
-            val filename = "IMG_${timestamp}_${if (isBack) "back" else "front"}.jpg"
-            var savedPath: String? = null
+    private fun onPhotoCaptured(key: String, bitmap: Bitmap?, timestamp: String) {
+        pendingPhotoBitmaps[key] = bitmap
+        
+        if (pendingPhotoBitmaps.size >= photosExpected) {
+            // All photos captured, compose and save
+            composeAndSavePhoto(timestamp)
+        }
+    }
 
+    private fun composeAndSavePhoto(timestamp: String) {
+        backgroundHandler?.post {
+            try {
+                val backBitmap = pendingPhotoBitmaps["back"]
+                val frontBitmap = pendingPhotoBitmaps["front"]
+                
+                val composedBitmap = if (backBitmap != null && frontBitmap != null && isDualCameraSupported) {
+                    // Compose both images based on current layout
+                    composePhotoBitmaps(backBitmap, frontBitmap)
+                } else {
+                    // Single camera, use whichever is available
+                    backBitmap ?: frontBitmap
+                }
+                
+                if (composedBitmap != null) {
+                    val savedPath = saveComposedPhoto(composedBitmap, timestamp)
+                    
+                    // Recycle bitmaps
+                    backBitmap?.recycle()
+                    frontBitmap?.recycle()
+                    if (composedBitmap != backBitmap && composedBitmap != frontBitmap) {
+                        composedBitmap.recycle()
+                    }
+                    
+                    Handler(context.mainLooper).post {
+                        photoCaptureCallback?.invoke(mapOf("composedPhoto" to savedPath))
+                        photoCaptureCallback = null
+                        pendingPhotoBitmaps.clear()
+                    }
+                } else {
+                    Handler(context.mainLooper).post {
+                        photoCaptureCallback?.invoke(null)
+                        photoCaptureCallback = null
+                        pendingPhotoBitmaps.clear()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error composing photo", e)
+                Handler(context.mainLooper).post {
+                    photoCaptureCallback?.invoke(null)
+                    photoCaptureCallback = null
+                    pendingPhotoBitmaps.clear()
+                }
+            }
+        }
+    }
+
+    private fun composePhotoBitmaps(backBitmap: Bitmap, frontBitmap: Bitmap): Bitmap {
+        // Determine output size based on layout
+        val outputWidth: Int
+        val outputHeight: Int
+        
+        when (currentLayout) {
+            PreviewLayout.SIDE_BY_SIDE_HORIZONTAL -> {
+                outputWidth = 1920
+                outputHeight = 1080
+            }
+            PreviewLayout.SIDE_BY_SIDE_VERTICAL -> {
+                outputWidth = 1080
+                outputHeight = 1920
+            }
+            else -> {
+                // PiP and single layouts
+                outputWidth = 1080
+                outputHeight = 1920
+            }
+        }
+        
+        val composedBitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(composedBitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        
+        // Apply same composition logic as video
+        when (currentLayout) {
+            PreviewLayout.SIDE_BY_SIDE_HORIZONTAL -> {
+                val halfWidth = outputWidth / 2
+                // Front on left
+                val frontSrc = Rect(0, 0, frontBitmap.width, frontBitmap.height)
+                val frontDst = Rect(0, 0, halfWidth, outputHeight)
+                canvas.drawBitmap(frontBitmap, frontSrc, frontDst, paint)
+                // Back on right
+                val backSrc = Rect(0, 0, backBitmap.width, backBitmap.height)
+                val backDst = Rect(halfWidth, 0, outputWidth, outputHeight)
+                canvas.drawBitmap(backBitmap, backSrc, backDst, paint)
+            }
+            PreviewLayout.SIDE_BY_SIDE_VERTICAL -> {
+                val halfHeight = outputHeight / 2
+                // Back on top
+                val backSrc = Rect(0, 0, backBitmap.width, backBitmap.height)
+                val backDst = Rect(0, 0, outputWidth, halfHeight)
+                canvas.drawBitmap(backBitmap, backSrc, backDst, paint)
+                // Front on bottom
+                val frontSrc = Rect(0, 0, frontBitmap.width, frontBitmap.height)
+                val frontDst = Rect(0, halfHeight, outputWidth, outputHeight)
+                canvas.drawBitmap(frontBitmap, frontSrc, frontDst, paint)
+            }
+            PreviewLayout.PIP_TOP_LEFT, PreviewLayout.PIP_TOP_RIGHT,
+            PreviewLayout.PIP_BOTTOM_LEFT, PreviewLayout.PIP_BOTTOM_RIGHT -> {
+                // Main (back) fullscreen
+                val mainBitmap = if (camerasSwapped) frontBitmap else backBitmap
+                val pipBitmap = if (camerasSwapped) backBitmap else frontBitmap
+                
+                val mainSrc = Rect(0, 0, mainBitmap.width, mainBitmap.height)
+                val mainDst = Rect(0, 0, outputWidth, outputHeight)
+                canvas.drawBitmap(mainBitmap, mainSrc, mainDst, paint)
+                
+                // PiP overlay
+                val pipWidth = outputWidth / 4
+                val pipHeight = outputHeight / 4
+                val margin = 40
+                
+                val (left, top) = when (currentLayout) {
+                    PreviewLayout.PIP_TOP_LEFT -> Pair(margin, margin)
+                    PreviewLayout.PIP_TOP_RIGHT -> Pair(outputWidth - pipWidth - margin, margin)
+                    PreviewLayout.PIP_BOTTOM_LEFT -> Pair(margin, outputHeight - pipHeight - margin)
+                    else -> Pair(outputWidth - pipWidth - margin, outputHeight - pipHeight - margin)
+                }
+                
+                val pipSrc = Rect(0, 0, pipBitmap.width, pipBitmap.height)
+                val pipDst = Rect(left, top, left + pipWidth, top + pipHeight)
+                canvas.drawBitmap(pipBitmap, pipSrc, pipDst, paint)
+            }
+            PreviewLayout.SINGLE_BACK -> {
+                val src = Rect(0, 0, backBitmap.width, backBitmap.height)
+                val dst = Rect(0, 0, outputWidth, outputHeight)
+                canvas.drawBitmap(backBitmap, src, dst, paint)
+            }
+            PreviewLayout.SINGLE_FRONT -> {
+                val src = Rect(0, 0, frontBitmap.width, frontBitmap.height)
+                val dst = Rect(0, 0, outputWidth, outputHeight)
+                canvas.drawBitmap(frontBitmap, src, dst, paint)
+            }
+        }
+        
+        return composedBitmap
+    }
+
+    private fun saveComposedPhoto(bitmap: Bitmap, timestamp: String): String? {
+        try {
+            val filename = "IMG_${timestamp}_dual.jpg"
+            
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, filename)
@@ -704,31 +859,27 @@ class DualCameraManager(
 
                 val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                 uri?.let {
-                    context.contentResolver.openOutputStream(it)?.use { os -> os.write(bytes) }
-                    savedPath = uri.toString()
+                    context.contentResolver.openOutputStream(it)?.use { os ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, os)
+                    }
+                    Log.d(TAG, "Composed photo saved: $uri")
+                    return uri.toString()
                 }
             } else {
                 val storageDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "DualRecorder")
                 if (!storageDir.exists()) storageDir.mkdirs()
                 val photoFile = File(storageDir, filename)
-                FileOutputStream(photoFile).use { it.write(bytes) }
-                savedPath = photoFile.absolutePath
-                MediaScannerConnection.scanFile(context, arrayOf(savedPath), arrayOf("image/jpeg"), null)
+                FileOutputStream(photoFile).use { os ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, os)
+                }
+                MediaScannerConnection.scanFile(context, arrayOf(photoFile.absolutePath), arrayOf("image/jpeg"), null)
+                Log.d(TAG, "Composed photo saved: ${photoFile.absolutePath}")
+                return photoFile.absolutePath
             }
-
-            onPhotoSaved(if (isBack) "backPhoto" else "frontPhoto", savedPath)
         } catch (e: Exception) {
-            onPhotoSaved(if (isBack) "backPhoto" else "frontPhoto", null)
+            Log.e(TAG, "Error saving composed photo", e)
         }
-    }
-
-    private fun onPhotoSaved(key: String, path: String?) {
-        pendingPhotos[key] = path
-        if (pendingPhotos.size >= photosExpected) {
-            photoCaptureCallback?.invoke(pendingPhotos.toMap())
-            photoCaptureCallback = null
-            pendingPhotos.clear()
-        }
+        return null
     }
 
     private fun getOutputDirectory(): File {

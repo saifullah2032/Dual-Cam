@@ -1,6 +1,9 @@
 package com.example.dual_recorder
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -207,6 +210,27 @@ class MainActivity : FlutterActivity() {
                             "androidVersion" to Build.VERSION.SDK_INT,
                             "release" to Build.VERSION.RELEASE
                         ))
+                    }
+                    
+                    "openGallery" -> {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                type = "image/*"
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            // Try to open the specific DualRecorder folder if possible
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI.buildUpon()
+                                    .appendQueryParameter("bucketDisplayName", "DualRecorder")
+                                    .build()
+                                intent.setDataAndType(uri, "image/*")
+                            }
+                            startActivity(Intent.createChooser(intent, "Open Gallery"))
+                            result.success(mapOf("success" to true))
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error opening gallery", e)
+                            result.success(mapOf("success" to false, "error" to e.message))
+                        }
                     }
                     
                     else -> result.notImplemented()

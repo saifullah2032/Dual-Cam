@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
 import '../services/native_camera_service.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
-import 'gallery_screen.dart';
 
 /// Screen for recording from cameras using native Android Camera2 API
 class RecordingScreen extends StatefulWidget {
@@ -97,7 +97,7 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   Future<void> _stopRecording() async {
     try {
       final paths = await _cameraService.stopRecording();
-      if (paths != null && paths['backVideo'] != null) {
+      if (paths != null && (paths['composedVideo'] != null || paths['backVideo'] != null)) {
         _showSuccess('Video saved to gallery!');
       } else {
         _showError('Failed to save video');
@@ -111,15 +111,25 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
   Future<void> _takePhoto() async {
     try {
       final photos = await _cameraService.takePicture();
-      if (photos != null && photos.isNotEmpty) {
-        final count = photos.length;
-        _showSuccess('$count photo(s) saved to gallery!');
+      if (photos != null && (photos['composedPhoto'] != null || photos.isNotEmpty)) {
+        _showSuccess('Photo saved to gallery!');
       } else {
         _showError('Failed to capture photo');
       }
     } catch (e) {
       AppLogger.error('Failed to take photo', error: e);
       _showError('Failed to take photo: $e');
+    }
+  }
+
+  Future<void> _openDeviceGallery() async {
+    try {
+      // Use platform channel to open device gallery
+      const channel = MethodChannel('com.example.dual_recorder/camera');
+      await channel.invokeMethod('openGallery');
+    } catch (e) {
+      AppLogger.error('Failed to open gallery', error: e);
+      _showError('Failed to open gallery');
     }
   }
 
@@ -864,18 +874,13 @@ class _RecordingScreenState extends State<RecordingScreen> with TickerProviderSt
                 // Record button
                 _buildRecordButton(isRecording),
 
-                // Gallery button
+                // Gallery button - opens device gallery
                 _buildControlButton(
                   icon: Icons.photo_library,
                   label: 'Gallery',
                   onPressed: isRecording
                       ? null
-                      : () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const GalleryScreen()),
-                          );
-                        },
+                      : () => _openDeviceGallery(),
                   color: OceanColors.pearlWhite,
                 ),
               ],
