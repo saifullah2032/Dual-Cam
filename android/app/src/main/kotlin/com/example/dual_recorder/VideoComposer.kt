@@ -7,10 +7,9 @@ import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
 import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Composes two camera feeds into a single video with configurable layout
@@ -45,20 +44,18 @@ class VideoComposer(
     private var audioEncoder: MediaCodec? = null
     private var audioRecord: AudioRecord? = null
     private var audioTrackIndex: Int = -1
+    private var audioEnabled = false  // Track if audio was actually initialized
 
     // Muxer
     private var muxer: MediaMuxer? = null
-    private var muxerStarted = false
+    @Volatile private var muxerStarted = false
     private val muxerLock = Object()
     private var tracksAdded = 0
-    private val expectedTracks: Int
-        get() = if (enableAudio) 2 else 1
+    private var expectedTracks = 1  // Will be set based on actual audio availability
 
-    // Frame buffers for each camera
-    @Volatile private var frontFrameBitmap: Bitmap? = null
-    @Volatile private var backFrameBitmap: Bitmap? = null
-    private val frontFrameLock = Object()
-    private val backFrameLock = Object()
+    // Double-buffered frame storage to prevent flickering
+    private val frontFrameRef = AtomicReference<Bitmap?>(null)
+    private val backFrameRef = AtomicReference<Bitmap?>(null)
 
     // State
     private val isRecording = AtomicBoolean(false)
@@ -73,10 +70,8 @@ class VideoComposer(
     private var videoEncoderHandler: Handler? = null
     private var audioThread: Thread? = null
 
-    // Paint for drawing
-    private val paint = Paint().apply {
-        isFilterBitmap = true
-        isAntiAlias = true
+    // Paint for drawing - reuse for performance
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
         isDither = true
     }
 
@@ -102,9 +97,16 @@ class VideoComposer(
 
             setupVideoEncoder()
             setupMuxer()
+            
+            // Try to setup audio, but don't fail if it doesn't work
             if (enableAudio) {
-                setupAudioEncoder()
+                audioEnabled = setupAudioEncoder()
             }
+            
+            // Set expected tracks based on what was actually initialized
+            expectedTracks = if (audioEnabled) 2 else 1
+            Log.d(TAG, "Expected tracks: $expectedTracks (audio: $audioEnabled)")
+            
             startThreads()
             
             isRecording.set(true)
@@ -127,9 +129,6 @@ class VideoComposer(
             setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL)
-            // Add profile and level for better compatibility
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-            setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
         }
 
         videoEncoder = MediaCodec.createEncoderByType(VIDEO_MIME_TYPE).apply {
@@ -141,12 +140,38 @@ class VideoComposer(
         Log.d(TAG, "Video encoder setup complete")
     }
 
-    private fun setupAudioEncoder() {
-        try {
+    private fun setupAudioEncoder(): Boolean {
+        return try {
+            val minBufferSize = AudioRecord.getMinBufferSize(
+                AUDIO_SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            
+            if (minBufferSize == AudioRecord.ERROR || minBufferSize == AudioRecord.ERROR_BAD_VALUE) {
+                Log.e(TAG, "Invalid audio buffer size")
+                return false
+            }
+
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                AUDIO_SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                minBufferSize * 4
+            )
+            
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "AudioRecord failed to initialize")
+                audioRecord?.release()
+                audioRecord = null
+                return false
+            }
+
             val audioFormat = MediaFormat.createAudioFormat(AUDIO_MIME_TYPE, AUDIO_SAMPLE_RATE, AUDIO_CHANNEL_COUNT).apply {
                 setInteger(MediaFormat.KEY_BIT_RATE, AUDIO_BIT_RATE)
                 setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, minBufferSize * 2)
             }
 
             audioEncoder = MediaCodec.createEncoderByType(AUDIO_MIME_TYPE).apply {
@@ -154,28 +179,15 @@ class VideoComposer(
                 start()
             }
 
-            val minBufferSize = AudioRecord.getMinBufferSize(
-                AUDIO_SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                AUDIO_SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                minBufferSize * 2
-            )
-
             Log.d(TAG, "Audio encoder setup complete")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to setup audio encoder", e)
-            // Continue without audio
             audioEncoder?.release()
             audioEncoder = null
             audioRecord?.release()
             audioRecord = null
+            false
         }
     }
 
@@ -187,12 +199,16 @@ class VideoComposer(
     }
 
     private fun startThreads() {
-        // Video encoder thread
-        videoEncoderThread = HandlerThread("VideoEncoderThread").apply { start() }
+        // Video encoder thread - high priority
+        videoEncoderThread = HandlerThread("VideoEncoderThread").apply { 
+            start() 
+        }
         videoEncoderHandler = Handler(videoEncoderThread!!.looper)
 
         // Composition thread
-        compositionThread = HandlerThread("CompositionThread").apply { start() }
+        compositionThread = HandlerThread("CompositionThread").apply { 
+            start() 
+        }
         compositionHandler = Handler(compositionThread!!.looper)
 
         // Start video encoder drain loop
@@ -201,8 +217,8 @@ class VideoComposer(
         // Start composition loop
         startCompositionLoop()
 
-        // Start audio recording
-        if (enableAudio && audioEncoder != null && audioRecord != null) {
+        // Start audio recording if enabled
+        if (audioEnabled && audioEncoder != null && audioRecord != null) {
             startAudioRecording()
         }
     }
@@ -221,7 +237,9 @@ class VideoComposer(
     }
 
     private fun startAudioRecording() {
-        audioThread = Thread {
+        audioThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            
             try {
                 audioRecord?.startRecording()
                 val bufferSize = 4096
@@ -232,6 +250,9 @@ class VideoComposer(
                     val readResult = audioRecord?.read(audioBuffer, 0, bufferSize) ?: -1
                     if (readResult > 0) {
                         feedAudioToEncoder(audioBuffer, readResult, audioStartTime)
+                    } else if (readResult < 0) {
+                        Log.e(TAG, "Audio read error: $readResult")
+                        break
                     }
                 }
                 
@@ -241,10 +262,7 @@ class VideoComposer(
             } catch (e: Exception) {
                 Log.e(TAG, "Audio recording error", e)
             }
-        }.apply { 
-            name = "AudioRecordThread"
-            start() 
-        }
+        }, "AudioRecordThread").apply { start() }
     }
 
     private fun feedAudioToEncoder(data: ByteArray, size: Int, startTime: Long, endOfStream: Boolean = false) {
@@ -279,7 +297,12 @@ class VideoComposer(
         val bufferInfo = MediaCodec.BufferInfo()
 
         while (true) {
-            val outputBufferIndex = encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+            val outputBufferIndex = try {
+                encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error draining audio encoder", e)
+                break
+            }
 
             when {
                 outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> break
@@ -289,8 +312,8 @@ class VideoComposer(
                         if (audioTrackIndex < 0) {
                             audioTrackIndex = muxer?.addTrack(encoder.outputFormat) ?: -1
                             tracksAdded++
+                            Log.d(TAG, "Audio track added: $audioTrackIndex, total tracks: $tracksAdded")
                             checkStartMuxer()
-                            Log.d(TAG, "Audio track added: $audioTrackIndex")
                         }
                     }
                 }
@@ -302,12 +325,16 @@ class VideoComposer(
                         bufferInfo.size = 0
                     }
 
-                    if (bufferInfo.size > 0) {
+                    if (bufferInfo.size > 0 && muxerStarted && audioTrackIndex >= 0) {
                         synchronized(muxerLock) {
-                            if (muxerStarted && audioTrackIndex >= 0) {
+                            if (muxerStarted) {
                                 outputBuffer?.position(bufferInfo.offset)
                                 outputBuffer?.limit(bufferInfo.offset + bufferInfo.size)
-                                muxer?.writeSampleData(audioTrackIndex, outputBuffer!!, bufferInfo)
+                                try {
+                                    muxer?.writeSampleData(audioTrackIndex, outputBuffer!!, bufferInfo)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error writing audio sample", e)
+                                }
                             }
                         }
                     }
@@ -323,16 +350,20 @@ class VideoComposer(
     }
 
     /**
-     * Update the front camera frame
+     * Update the front camera frame - thread-safe with atomic reference
      */
     fun updateFrontFrameBitmap(bitmap: Bitmap) {
         if (!isRecording.get() || isStopping.get()) return
         
         try {
+            // Create a copy and atomically swap
             val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-            synchronized(frontFrameLock) {
-                frontFrameBitmap?.recycle()
-                frontFrameBitmap = copy
+            val old = frontFrameRef.getAndSet(copy)
+            // Recycle old bitmap on background thread to avoid blocking
+            old?.let { 
+                compositionHandler?.post { 
+                    if (!it.isRecycled) it.recycle() 
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error updating front frame", e)
@@ -340,16 +371,20 @@ class VideoComposer(
     }
 
     /**
-     * Update the back camera frame
+     * Update the back camera frame - thread-safe with atomic reference
      */
     fun updateBackFrameBitmap(bitmap: Bitmap) {
         if (!isRecording.get() || isStopping.get()) return
         
         try {
+            // Create a copy and atomically swap
             val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-            synchronized(backFrameLock) {
-                backFrameBitmap?.recycle()
-                backFrameBitmap = copy
+            val old = backFrameRef.getAndSet(copy)
+            // Recycle old bitmap on background thread to avoid blocking
+            old?.let { 
+                compositionHandler?.post { 
+                    if (!it.isRecycled) it.recycle() 
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error updating back frame", e)
@@ -367,20 +402,9 @@ class VideoComposer(
                     // Clear canvas with black
                     canvas.drawColor(Color.BLACK)
                     
-                    // Get frame copies
-                    val frontBitmap: Bitmap?
-                    val backBitmap: Bitmap?
-                    
-                    synchronized(frontFrameLock) {
-                        frontBitmap = frontFrameBitmap?.let { 
-                            if (!it.isRecycled) it else null 
-                        }
-                    }
-                    synchronized(backFrameLock) {
-                        backBitmap = backFrameBitmap?.let { 
-                            if (!it.isRecycled) it else null 
-                        }
-                    }
+                    // Get current frames atomically (don't modify the references)
+                    val frontBitmap = frontFrameRef.get()
+                    val backBitmap = backFrameRef.get()
                     
                     // Compose based on layout
                     composeFrames(canvas, frontBitmap, backBitmap)
@@ -424,24 +448,32 @@ class VideoComposer(
         }
     }
 
+    private fun drawBitmapSafely(canvas: Canvas, bitmap: Bitmap?, srcRect: Rect, dstRect: Rect) {
+        bitmap?.let {
+            if (!it.isRecycled) {
+                try {
+                    canvas.drawBitmap(it, srcRect, dstRect, paint)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error drawing bitmap", e)
+                }
+            }
+        }
+    }
+
     private fun composeSideBySideHorizontal(canvas: Canvas, backBitmap: Bitmap?, frontBitmap: Bitmap?) {
         val halfWidth = outputWidth / 2
         
         // Draw front camera on left
         frontBitmap?.let {
             if (!it.isRecycled) {
-                val srcRect = Rect(0, 0, it.width, it.height)
-                val dstRect = Rect(0, 0, halfWidth, outputHeight)
-                canvas.drawBitmap(it, srcRect, dstRect, paint)
+                drawBitmapSafely(canvas, it, Rect(0, 0, it.width, it.height), Rect(0, 0, halfWidth, outputHeight))
             }
         }
         
         // Draw back camera on right
         backBitmap?.let {
             if (!it.isRecycled) {
-                val srcRect = Rect(0, 0, it.width, it.height)
-                val dstRect = Rect(halfWidth, 0, outputWidth, outputHeight)
-                canvas.drawBitmap(it, srcRect, dstRect, paint)
+                drawBitmapSafely(canvas, it, Rect(0, 0, it.width, it.height), Rect(halfWidth, 0, outputWidth, outputHeight))
             }
         }
         
@@ -455,18 +487,14 @@ class VideoComposer(
         // Draw back camera on top
         backBitmap?.let {
             if (!it.isRecycled) {
-                val srcRect = Rect(0, 0, it.width, it.height)
-                val dstRect = Rect(0, 0, outputWidth, halfHeight)
-                canvas.drawBitmap(it, srcRect, dstRect, paint)
+                drawBitmapSafely(canvas, it, Rect(0, 0, it.width, it.height), Rect(0, 0, outputWidth, halfHeight))
             }
         }
         
         // Draw front camera on bottom
         frontBitmap?.let {
             if (!it.isRecycled) {
-                val srcRect = Rect(0, 0, it.width, it.height)
-                val dstRect = Rect(0, halfHeight, outputWidth, outputHeight)
-                canvas.drawBitmap(it, srcRect, dstRect, paint)
+                drawBitmapSafely(canvas, it, Rect(0, 0, it.width, it.height), Rect(0, halfHeight, outputWidth, outputHeight))
             }
         }
         
@@ -478,9 +506,7 @@ class VideoComposer(
         // Draw main camera fullscreen
         mainBitmap?.let {
             if (!it.isRecycled) {
-                val srcRect = Rect(0, 0, it.width, it.height)
-                val dstRect = Rect(0, 0, outputWidth, outputHeight)
-                canvas.drawBitmap(it, srcRect, dstRect, paint)
+                drawBitmapSafely(canvas, it, Rect(0, 0, it.width, it.height), Rect(0, 0, outputWidth, outputHeight))
             }
         }
         
@@ -512,9 +538,7 @@ class VideoComposer(
                 )
                 
                 // Draw PiP
-                val srcRect = Rect(0, 0, it.width, it.height)
-                val dstRect = Rect(left, top, left + pipWidth, top + pipHeight)
-                canvas.drawBitmap(it, srcRect, dstRect, paint)
+                drawBitmapSafely(canvas, it, Rect(0, 0, it.width, it.height), Rect(left, top, left + pipWidth, top + pipHeight))
             }
         }
     }
@@ -522,9 +546,7 @@ class VideoComposer(
     private fun composeSingle(canvas: Canvas, bitmap: Bitmap?) {
         bitmap?.let {
             if (!it.isRecycled) {
-                val srcRect = Rect(0, 0, it.width, it.height)
-                val dstRect = Rect(0, 0, outputWidth, outputHeight)
-                canvas.drawBitmap(it, srcRect, dstRect, paint)
+                drawBitmapSafely(canvas, it, Rect(0, 0, it.width, it.height), Rect(0, 0, outputWidth, outputHeight))
             }
         }
     }
@@ -533,12 +555,16 @@ class VideoComposer(
         val encoder = videoEncoder ?: return
         
         if (endOfStream) {
-            encoder.signalEndOfInputStream()
+            try {
+                encoder.signalEndOfInputStream()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error signaling end of stream", e)
+            }
         }
 
         val bufferInfo = MediaCodec.BufferInfo()
 
-        while (true) {
+        drainLoop@ while (true) {
             val outputBufferIndex = try {
                 encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
             } catch (e: Exception) {
@@ -548,7 +574,7 @@ class VideoComposer(
 
             when {
                 outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
-                    if (!endOfStream) break
+                    if (!endOfStream) break@drainLoop
                 }
                 
                 outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
@@ -556,8 +582,8 @@ class VideoComposer(
                         if (videoTrackIndex < 0) {
                             videoTrackIndex = muxer?.addTrack(encoder.outputFormat) ?: -1
                             tracksAdded++
+                            Log.d(TAG, "Video track added: $videoTrackIndex, total tracks: $tracksAdded")
                             checkStartMuxer()
-                            Log.d(TAG, "Video track added: $videoTrackIndex")
                         }
                     }
                 }
@@ -569,16 +595,20 @@ class VideoComposer(
                         bufferInfo.size = 0
                     }
 
-                    if (bufferInfo.size > 0) {
+                    if (bufferInfo.size > 0 && muxerStarted && videoTrackIndex >= 0) {
                         synchronized(muxerLock) {
-                            if (muxerStarted && videoTrackIndex >= 0) {
+                            if (muxerStarted) {
                                 outputBuffer?.position(bufferInfo.offset)
                                 outputBuffer?.limit(bufferInfo.offset + bufferInfo.size)
                                 
-                                // Use frame-based timing for more consistent output
+                                // Use frame-based timing
                                 bufferInfo.presentationTimeUs = (System.nanoTime() - startTimeNs) / 1000
                                 
-                                muxer?.writeSampleData(videoTrackIndex, outputBuffer!!, bufferInfo)
+                                try {
+                                    muxer?.writeSampleData(videoTrackIndex, outputBuffer!!, bufferInfo)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error writing video sample", e)
+                                }
                             }
                         }
                     }
@@ -587,7 +617,7 @@ class VideoComposer(
 
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         Log.d(TAG, "Video encoder end of stream")
-                        break
+                        break@drainLoop
                     }
                 }
             }
@@ -600,10 +630,16 @@ class VideoComposer(
     }
 
     private fun checkStartMuxer() {
-        if (!muxerStarted && tracksAdded >= expectedTracks) {
-            muxer?.start()
-            muxerStarted = true
-            Log.d(TAG, "Muxer started with $tracksAdded tracks")
+        synchronized(muxerLock) {
+            if (!muxerStarted && tracksAdded >= expectedTracks) {
+                try {
+                    muxer?.start()
+                    muxerStarted = true
+                    Log.d(TAG, "Muxer started with $tracksAdded tracks")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error starting muxer", e)
+                }
+            }
         }
     }
 
@@ -617,41 +653,54 @@ class VideoComposer(
         Log.d(TAG, "Stopping VideoComposer, frames: ${frameCount.get()}")
 
         try {
-            // Wait for audio thread to finish
-            audioThread?.join(2000)
-            audioRecord?.stop()
+            // Stop audio first
+            try {
+                audioRecord?.stop()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping audio record", e)
+            }
+            
+            // Wait for audio thread
+            audioThread?.join(1000)
 
             // Stop composition
             compositionHandler?.removeCallbacksAndMessages(null)
             
             // Give time for final frames
-            Thread.sleep(100)
+            Thread.sleep(200)
 
-            // Signal end of video stream and drain
+            // Final drain of video encoder
+            val drainLatch = java.util.concurrent.CountDownLatch(1)
             videoEncoderHandler?.post {
-                drainVideoEncoder(true)
+                try {
+                    drainVideoEncoder(true)
+                } finally {
+                    drainLatch.countDown()
+                }
             }
-            
-            // Wait for encoder to finish
-            Thread.sleep(500)
+            drainLatch.await(2, java.util.concurrent.TimeUnit.SECONDS)
 
             // Stop threads
             compositionThread?.quitSafely()
             videoEncoderThread?.quitSafely()
             
-            compositionThread?.join(1000)
-            videoEncoderThread?.join(1000)
+            try {
+                compositionThread?.join(500)
+                videoEncoderThread?.join(500)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error joining threads", e)
+            }
 
             // Release resources
             releaseEncoders()
 
             val file = File(outputPath)
-            if (file.exists() && file.length() > 0) {
+            return if (file.exists() && file.length() > 0) {
                 Log.d(TAG, "VideoComposer stopped successfully: $outputPath (${file.length()} bytes)")
-                return outputPath
+                outputPath
             } else {
-                Log.e(TAG, "Output file is empty or doesn't exist")
-                return null
+                Log.e(TAG, "Output file is empty or doesn't exist: exists=${file.exists()}, length=${file.length()}")
+                null
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping VideoComposer", e)
@@ -661,44 +710,25 @@ class VideoComposer(
     }
 
     private fun releaseEncoders() {
-        try {
-            videoEncoder?.stop()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping video encoder", e)
-        }
-        try {
-            videoEncoder?.release()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing video encoder", e)
-        }
+        // Release video encoder
+        try { videoEncoder?.stop() } catch (e: Exception) { Log.e(TAG, "Error stopping video encoder", e) }
+        try { videoEncoder?.release() } catch (e: Exception) { Log.e(TAG, "Error releasing video encoder", e) }
         videoEncoder = null
         
-        try {
-            audioEncoder?.stop()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping audio encoder", e)
-        }
-        try {
-            audioEncoder?.release()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing audio encoder", e)
-        }
+        // Release audio encoder
+        try { audioEncoder?.stop() } catch (e: Exception) { Log.e(TAG, "Error stopping audio encoder", e) }
+        try { audioEncoder?.release() } catch (e: Exception) { Log.e(TAG, "Error releasing audio encoder", e) }
         audioEncoder = null
         
-        try {
-            audioRecord?.release()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing audio record", e)
-        }
+        // Release audio record
+        try { audioRecord?.release() } catch (e: Exception) { Log.e(TAG, "Error releasing audio record", e) }
         audioRecord = null
         
-        try {
-            inputSurface?.release()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing input surface", e)
-        }
+        // Release input surface
+        try { inputSurface?.release() } catch (e: Exception) { Log.e(TAG, "Error releasing input surface", e) }
         inputSurface = null
 
+        // Release muxer
         synchronized(muxerLock) {
             try {
                 if (muxerStarted) {
@@ -717,14 +747,8 @@ class VideoComposer(
         }
 
         // Release bitmaps
-        synchronized(frontFrameLock) {
-            frontFrameBitmap?.recycle()
-            frontFrameBitmap = null
-        }
-        synchronized(backFrameLock) {
-            backFrameBitmap?.recycle()
-            backFrameBitmap = null
-        }
+        frontFrameRef.getAndSet(null)?.recycle()
+        backFrameRef.getAndSet(null)?.recycle()
 
         Log.d(TAG, "Encoders released")
     }

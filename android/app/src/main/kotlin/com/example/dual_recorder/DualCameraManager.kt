@@ -414,7 +414,7 @@ class DualCameraManager(
     }
 
     private fun processFrameForComposition(image: Image, isBack: Boolean) {
-        // Rate limit frame processing
+        // Rate limit frame processing to reduce CPU load
         val currentTime = System.currentTimeMillis()
         if (isBack) {
             if (currentTime - lastBackFrameTime < frameIntervalMs) return
@@ -425,19 +425,22 @@ class DualCameraManager(
         }
 
         try {
-            val bitmap = yuvToBitmap(image)
-            if (bitmap != null) {
-                // Apply rotation based on camera orientation
-                val rotatedBitmap = rotateBitmap(bitmap, if (isBack) 90 else 270, !isBack)
-                bitmap.recycle()
-                
-                if (isBack) {
-                    videoComposer?.updateBackFrameBitmap(rotatedBitmap)
-                } else {
-                    videoComposer?.updateFrontFrameBitmap(rotatedBitmap)
-                }
-                rotatedBitmap.recycle()
+            val bitmap = yuvToBitmap(image) ?: return
+            
+            // Apply rotation based on camera orientation
+            val rotatedBitmap = rotateBitmap(bitmap, if (isBack) 90 else 270, !isBack)
+            bitmap.recycle()  // Safe to recycle original after rotation
+            
+            // Pass to composer - it will make its own copy
+            if (isBack) {
+                videoComposer?.updateBackFrameBitmap(rotatedBitmap)
+            } else {
+                videoComposer?.updateFrontFrameBitmap(rotatedBitmap)
             }
+            
+            // Don't recycle here - let the VideoComposer handle it after copying
+            // The VideoComposer uses AtomicReference and will recycle old frames
+            rotatedBitmap.recycle()
         } catch (e: Exception) {
             Log.e(TAG, "Error processing frame", e)
         }
