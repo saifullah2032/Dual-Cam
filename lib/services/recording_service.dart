@@ -48,77 +48,91 @@ class RecordingService extends GetxService {
     }
   }
 
-  /// Initialize camera controllers for both front and back cameras
-  Future<void> initializeCameras({
-    int frontCameraIndex = 0,
-    int backCameraIndex = 1,
-    ResolutionPreset resolution = ResolutionPreset.high,
-    bool enableAudio = true,
-  }) async {
-    try {
-      _initializationError.value = null;
-      
-      if (_cameras == null || _cameras!.isEmpty) {
-        final error = 'No cameras available';
-        _initializationError.value = error;
-        throw CameraOperationException(
-          message: error,
-        );
-      }
+   /// Initialize camera controllers for both front and back cameras
+   Future<void> initializeCameras({
+     int frontCameraIndex = 0,
+     int backCameraIndex = 1,
+     ResolutionPreset resolution = ResolutionPreset.high,
+     bool enableAudio = true,
+   }) async {
+     try {
+       _initializationError.value = null;
+       
+       if (_cameras == null || _cameras!.isEmpty) {
+         final error = 'No cameras available';
+         _initializationError.value = error;
+         throw CameraOperationException(
+           message: error,
+         );
+       }
 
-      // Get front and back cameras
-      CameraDescription? frontCamera;
-      CameraDescription? backCamera;
+       // Get front and back cameras
+       CameraDescription? frontCamera;
+       CameraDescription? backCamera;
 
-      for (var camera in _cameras!) {
-        if (camera.lensDirection == CameraLensDirection.front && frontCamera == null) {
-          frontCamera = camera;
-        } else if (camera.lensDirection == CameraLensDirection.back && backCamera == null) {
-          backCamera = camera;
-        }
-      }
+       for (var camera in _cameras!) {
+         if (camera.lensDirection == CameraLensDirection.front && frontCamera == null) {
+           frontCamera = camera;
+         } else if (camera.lensDirection == CameraLensDirection.back && backCamera == null) {
+           backCamera = camera;
+         }
+       }
 
-      // Initialize front camera
-      if (frontCamera != null) {
-        _frontController = CameraController(
-          frontCamera,
-          resolution,
-          enableAudio: enableAudio,
-        );
-        await _frontController!.initialize();
-        AppLogger.info('Front camera initialized');
-      } else {
-        AppLogger.warning('Front camera not available');
-      }
+       // Initialize front camera with better error handling
+       if (frontCamera != null) {
+         try {
+           _frontController = CameraController(
+             frontCamera,
+             resolution,
+             enableAudio: false, // Disable audio for front camera to avoid conflicts
+           );
+           await _frontController!.initialize();
+           AppLogger.info('Front camera initialized successfully');
+         } catch (e) {
+           AppLogger.warning('Failed to initialize front camera: $e');
+           _frontController = null; // Set to null if initialization fails
+         }
+       } else {
+         AppLogger.warning('Front camera not available');
+       }
 
-      // Initialize back camera
-      if (backCamera != null) {
-        _backController = CameraController(
-          backCamera,
-          resolution,
-          enableAudio: enableAudio,
-        );
-        await _backController!.initialize();
-        AppLogger.info('Back camera initialized');
-      } else {
-        final error = 'Back camera not available';
-        _initializationError.value = error;
-        AppLogger.warning(error);
-      }
+       // Initialize back camera
+       if (backCamera != null) {
+         try {
+           _backController = CameraController(
+             backCamera,
+             resolution,
+             enableAudio: enableAudio,
+           );
+           await _backController!.initialize();
+           AppLogger.info('Back camera initialized successfully');
+         } catch (e) {
+           final error = 'Failed to initialize back camera: $e';
+           _initializationError.value = error;
+           AppLogger.error(error);
+           _backController = null;
+           throw CameraOperationException(message: error);
+         }
+       } else {
+         final error = 'Back camera not available';
+         _initializationError.value = error;
+         AppLogger.warning(error);
+         throw CameraOperationException(message: error);
+       }
 
-      _isInitialized.value = true;
-      AppLogger.info('Cameras initialized successfully');
-    } catch (e) {
-      final errorMsg = 'Failed to initialize cameras: $e';
-      _initializationError.value = errorMsg;
-      AppLogger.error(errorMsg);
-      await dispose();
-      throw CameraOperationException(
-        message: 'Failed to initialize cameras',
-        originalException: e,
-      );
-    }
-  }
+       _isInitialized.value = true;
+       AppLogger.info('Cameras initialized successfully');
+     } catch (e) {
+       final errorMsg = 'Failed to initialize cameras: $e';
+       _initializationError.value = errorMsg;
+       AppLogger.error(errorMsg);
+       await dispose();
+       throw CameraOperationException(
+         message: 'Failed to initialize cameras',
+         originalException: e,
+       );
+     }
+   }
 
   /// Start recording video
   Future<void> startRecording({
@@ -212,26 +226,32 @@ class RecordingService extends GetxService {
     }
   }
 
-  /// Stop recording and return the file path
-  Future<XFile?> stopRecording() async {
-    try {
-      if (!_isRecording.value) {
-        AppLogger.warning('No recording in progress');
-        return null;
-      }
+   /// Stop recording and return the file path
+   Future<XFile?> stopRecording() async {
+     try {
+       if (!_isRecording.value) {
+         AppLogger.warning('No recording in progress');
+         return null;
+       }
 
        _durationTimer?.cancel();
        XFile? backVideoFile;
        XFile? frontVideoFile;
 
        // Stop recording on back camera
-       if (_backController != null) {
-         backVideoFile = await _backController!.stopVideoRecording();
-         AppLogger.info('Back camera recording stopped: ${backVideoFile.path}');
+       if (_backController != null && _backController!.value.isRecordingVideo) {
+         try {
+           backVideoFile = await _backController!.stopVideoRecording();
+           AppLogger.info('Back camera recording stopped: ${backVideoFile.path}');
+         } catch (e) {
+           AppLogger.error('Error stopping back camera: $e');
+         }
        }
 
        // Stop recording on front camera if it was recording
-       if (_frontController != null && _frontVideoPath != null) {
+       if (_frontController != null && 
+           _frontController!.value.isRecordingVideo && 
+           _frontVideoPath != null) {
          try {
            frontVideoFile = await _frontController!.stopVideoRecording();
            AppLogger.info('Front camera recording stopped: ${frontVideoFile.path}');
@@ -243,19 +263,25 @@ class RecordingService extends GetxService {
        _isRecording.value = false;
        _isPaused.value = false;
        _recordingDuration.value = const Duration();
+       
+       // Important: Clear these AFTER use
        _frontVideoPath = null;
        _backVideoPath = null;
 
-       // Return the back camera file as primary
+       AppLogger.info('Recording stopped and state reset');
        return backVideoFile;
-    } catch (e) {
-      AppLogger.error('Failed to stop recording', error: e);
-      throw RecordingException(
-        message: 'Failed to stop recording',
-        originalException: e,
-      );
-    }
-  }
+     } catch (e) {
+       // Even on error, try to reset state
+       _isRecording.value = false;
+       _isPaused.value = false;
+       _durationTimer?.cancel();
+       AppLogger.error('Failed to stop recording', error: e);
+       throw RecordingException(
+         message: 'Failed to stop recording',
+         originalException: e,
+       );
+     }
+   }
 
   /// Start the duration timer
   void _startDurationTimer() {
