@@ -5,6 +5,7 @@ import '../providers/camera_provider.dart';
 import '../theme/ocean_colors.dart';
 import '../utils/logger.dart';
 import 'recording_screen.dart';
+import 'gallery_screen.dart';
 
 /// Home/Main screen displaying device capability status and navigation
 class HomeScreen extends StatefulWidget {
@@ -243,13 +244,14 @@ class _HomeScreenState extends State<HomeScreen> {
       height: 56,
       child: OutlinedButton.icon(
         onPressed: () {
-          // TODO: Navigate to settings screen
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Settings screen coming soon')),
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const GalleryScreen(),
+            ),
           );
         },
-        icon: const Icon(Icons.settings),
-        label: const Text('Settings'),
+        icon: const Icon(Icons.photo_library),
+        label: const Text('Gallery'),
       ),
     );
   }
