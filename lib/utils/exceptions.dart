@@ -15,8 +15,8 @@ class DualRecorderException implements Exception {
 }
 
 /// Exception for camera-related errors
-class CameraException extends DualRecorderException {
-  CameraException({
+class CameraOperationException extends DualRecorderException {
+  CameraOperationException({
     required String message,
     String? code,
     dynamic originalException,
@@ -28,7 +28,7 @@ class CameraException extends DualRecorderException {
 }
 
 /// Exception when concurrent camera recording is not supported
-class ConcurrentCameraNotSupportedException extends CameraException {
+class ConcurrentCameraNotSupportedException extends CameraOperationException {
   ConcurrentCameraNotSupportedException({
     String? message,
     dynamic originalException,
