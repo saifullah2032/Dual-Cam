@@ -116,6 +116,7 @@ class DualCameraManager(
     // State
     private var isInitialized = false
     private var isDualCameraSupported = false
+    private var officialDualCameraSupport = false  // Track official API support separately
 
     // Photo capture
     private var photoCaptureCallback: ((Map<String, String?>?) -> Unit)? = null
@@ -149,13 +150,20 @@ class DualCameraManager(
                 }
             }
             
+            // Check if device officially supports concurrent cameras (Android R+)
+            // But we'll try to open both anyway since many devices work even without official support
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val concurrentSets = cameraManager.concurrentCameraIds
-                isDualCameraSupported = concurrentSets.any { set ->
+                officialDualCameraSupport = concurrentSets.any { set ->
                     set.contains(frontCameraId) && set.contains(backCameraId)
                 }
-                Log.d(TAG, "Dual camera supported: $isDualCameraSupported")
+                Log.d(TAG, "Official dual camera support: $officialDualCameraSupport")
             }
+            
+            // Always enable dual camera if both front and back cameras exist
+            // This bypasses the official API check and tries to open both cameras anyway
+            isDualCameraSupported = frontCameraId != null && backCameraId != null
+            Log.d(TAG, "Dual camera enabled (bypass mode): $isDualCameraSupported")
         } catch (e: Exception) {
             Log.e(TAG, "Error finding cameras", e)
         }
@@ -166,6 +174,7 @@ class DualCameraManager(
             "frontCameraId" to (frontCameraId ?: ""),
             "backCameraId" to (backCameraId ?: ""),
             "isDualCameraSupported" to isDualCameraSupported,
+            "officialDualCameraSupport" to officialDualCameraSupport,
             "androidVersion" to Build.VERSION.SDK_INT,
             "isInitialized" to isInitialized,
             "isRecording" to isRecording.get(),
