@@ -176,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildErrorCard(BuildContext context, CameraProvider provider) {
     return Card(
-      color: OceanColors.error.withOpacity(0.1),
+      color: OceanColors.error.withAlpha((0.1 * 255).toInt()),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(

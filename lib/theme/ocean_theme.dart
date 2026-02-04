@@ -117,7 +117,7 @@ class OceanTheme {
         elevation: 8,
         shape: const CircleBorder(),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: OceanColors.pearlWhite,
         elevation: 2,
         shape: RoundedRectangleBorder(

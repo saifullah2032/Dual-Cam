@@ -62,6 +62,9 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
 
+  # Preferences and settings
+  shared_preferences: ^2.2.2
+
   # Logging
   logger: ^2.0.2
 

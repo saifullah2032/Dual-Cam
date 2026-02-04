@@ -43,7 +43,7 @@ class AppLogger {
       case LogLevel.error:
         _logger.e(message, error: error, stackTrace: stackTrace);
       case LogLevel.wtf:
-        _logger.wtf(message, error: error, stackTrace: stackTrace);
+        _logger.f(message, error: error, stackTrace: stackTrace);
     }
   }
 
