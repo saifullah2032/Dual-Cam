@@ -1,8 +1,7 @@
 import 'dart:async';
-import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter/return_code.dart';
+// import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
+// import 'package:ffmpeg_kit_flutter/return_code.dart';
 import '../utils/logger.dart';
-import '../utils/exceptions.dart';
 
 /// Service for handling video processing and composition
 class VideoCompositionService {
@@ -15,30 +14,34 @@ class VideoCompositionService {
   }) async {
     try {
       AppLogger.info('Starting split-screen composition...');
-
-      // FFmpeg command for side-by-side video composition
-      final command = '-i $frontVideoPath -i $backVideoPath '
-          '-filter_complex "[0:v]scale=960:1080[v0];[1:v]scale=960:1080[v1];[v0][v1]hstack=inputs=2[v]" '
-          '-map "[v]" -map 0:a -shortest '
-          '-c:v libx264 -preset medium -crf 23 '
-          '-c:a aac -b:a 128k '
-          '$outputPath';
-
-      AppLogger.info('FFmpeg command: ffmpeg $command');
-
-      final session = await FFmpegKit.executeAsync(command, (dynamic log) {
-        AppLogger.info('FFmpeg: ${log.message}');
-      });
-
-      final returnCode = await session.getReturnCode();
-
-      if (ReturnCode.isSuccess(returnCode)) {
-        AppLogger.info('Split-screen composition completed: $outputPath');
-        return outputPath;
-      } else {
-        final failStackTrace = await session.getFailStackTrace();
-        throw Exception('FFmpeg composition failed: $failStackTrace');
-      }
+      
+      // FFmpeg Kit is currently unavailable
+      // This method will be implemented when FFmpeg dependency is available
+      throw Exception('Video composition not yet available in this build. FFmpeg Kit dependency needs to be resolved.');
+      
+      // TODO: Uncomment when FFmpeg Kit is available
+      // final command = '-i $frontVideoPath -i $backVideoPath '
+      //     '-filter_complex "[0:v]scale=960:1080[v0];[1:v]scale=960:1080[v1];[v0][v1]hstack=inputs=2[v]" '
+      //     '-map "[v]" -map 0:a -shortest '
+      //     '-c:v libx264 -preset medium -crf 23 '
+      //     '-c:a aac -b:a 128k '
+      //     '$outputPath';
+      //
+      // AppLogger.info('FFmpeg command: ffmpeg $command');
+      //
+      // final session = await FFmpegKit.executeAsync(command, (dynamic log) {
+      //   AppLogger.info('FFmpeg: ${log.message}');
+      // });
+      //
+      // final returnCode = await session.getReturnCode();
+      //
+      // if (ReturnCode.isSuccess(returnCode)) {
+      //   AppLogger.info('Split-screen composition completed: $outputPath');
+      //   return outputPath;
+      // } else {
+      //   final failStackTrace = await session.getFailStackTrace();
+      //   throw Exception('FFmpeg composition failed: $failStackTrace');
+      // }
     } catch (e) {
       AppLogger.error('Failed to compose split-screen video', error: e);
       throw Exception('Video composition failed: $e');
@@ -56,45 +59,48 @@ class VideoCompositionService {
   }) async {
     try {
       AppLogger.info('Starting PiP composition...');
-
+      
+      // FFmpeg Kit is currently unavailable
+      throw Exception('Video composition not yet available in this build. FFmpeg Kit dependency needs to be resolved.');
+      
+      // TODO: Uncomment when FFmpeg Kit is available
       // Parse position
-      String positionFilter;
-      switch (pipPosition) {
-        case 'top_left':
-          positionFilter = 'overlay=10:10';
-        case 'top_right':
-          positionFilter = 'overlay=W-w-10:10';
-        case 'bottom_left':
-          positionFilter = 'overlay=10:H-h-10';
-        case 'bottom_right':
-        default:
-          positionFilter = 'overlay=W-w-10:H-h-10';
-      }
-
-      // FFmpeg command for PiP composition
-      final command = '-i $mainVideoPath -i $pipVideoPath '
-          '-filter_complex "[1:v]scale=$pipSize[pip];[0:v][pip]$positionFilter[v]" '
-          '-map "[v]" -map 0:a '
-          '-c:v libx264 -preset medium -crf 23 '
-          '-c:a aac -b:a 128k '
-          '-shortest '
-          '$outputPath';
-
-      AppLogger.info('FFmpeg command: ffmpeg $command');
-
-      final session = await FFmpegKit.executeAsync(command, (dynamic log) {
-        AppLogger.info('FFmpeg: ${log.message}');
-      });
-
-      final returnCode = await session.getReturnCode();
-
-      if (ReturnCode.isSuccess(returnCode)) {
-        AppLogger.info('PiP composition completed: $outputPath');
-        return outputPath;
-      } else {
-        final failStackTrace = await session.getFailStackTrace();
-        throw Exception('FFmpeg composition failed: $failStackTrace');
-      }
+      // String positionFilter;
+      // switch (pipPosition) {
+      //   case 'top_left':
+      //     positionFilter = 'overlay=10:10';
+      //   case 'top_right':
+      //     positionFilter = 'overlay=W-w-10:10';
+      //   case 'bottom_left':
+      //     positionFilter = 'overlay=10:H-h-10';
+      //   case 'bottom_right':
+      //   default:
+      //     positionFilter = 'overlay=W-w-10:H-h-10';
+      // }
+      //
+      // final command = '-i $mainVideoPath -i $pipVideoPath '
+      //     '-filter_complex "[1:v]scale=$pipSize[pip];[0:v][pip]$positionFilter[v]" '
+      //     '-map "[v]" -map 0:a '
+      //     '-c:v libx264 -preset medium -crf 23 '
+      //     '-c:a aac -b:a 128k '
+      //     '-shortest '
+      //     '$outputPath';
+      //
+      // AppLogger.info('FFmpeg command: ffmpeg $command');
+      //
+      // final session = await FFmpegKit.executeAsync(command, (dynamic log) {
+      //   AppLogger.info('FFmpeg: ${log.message}');
+      // });
+      //
+      // final returnCode = await session.getReturnCode();
+      //
+      // if (ReturnCode.isSuccess(returnCode)) {
+      //   AppLogger.info('PiP composition completed: $outputPath');
+      //   return outputPath;
+      // } else {
+      //   final failStackTrace = await session.getFailStackTrace();
+      //   throw Exception('FFmpeg composition failed: $failStackTrace');
+      // }
     } catch (e) {
       AppLogger.error('Failed to compose PiP video', error: e);
       throw Exception('Video composition failed: $e');
@@ -106,21 +112,25 @@ class VideoCompositionService {
     try {
       AppLogger.info('Getting video info for: $videoPath');
 
-      final session = await FFmpegKit.executeAsync(
-        '-i $videoPath',
-        (dynamic log) {
-          AppLogger.debug('FFprobe: ${log.message}');
-        },
-      );
-
-      final output = await session.getOutput();
-      AppLogger.info('Video info retrieved');
-
-      // Parse output to extract metadata
-      return {
-        'path': videoPath,
-        'output': output,
-      };
+      // FFmpeg Kit is currently unavailable
+      throw Exception('Video info not yet available in this build. FFmpeg Kit dependency needs to be resolved.');
+      
+      // TODO: Uncomment when FFmpeg Kit is available
+      // final session = await FFmpegKit.executeAsync(
+      //   '-i $videoPath',
+      //   (dynamic log) {
+      //     AppLogger.debug('FFprobe: ${log.message}');
+      //   },
+      // );
+      //
+      // final output = await session.getOutput();
+      // AppLogger.info('Video info retrieved');
+      //
+      // // Parse output to extract metadata
+      // return {
+      //   'path': videoPath,
+      //   'output': output,
+      // };
     } catch (e) {
       AppLogger.error('Failed to get video info', error: e);
       return {'error': e.toString()};
@@ -137,28 +147,32 @@ class VideoCompositionService {
     try {
       AppLogger.info('Optimizing video: $inputPath');
 
-      final command = '-i $inputPath '
-          '-c:v libx264 -preset $preset '
-          '-b:v ${bitrate}k '
-          '-c:a aac -b:a 128k '
-          '-shortest '
-          '$outputPath';
-
-      AppLogger.info('FFmpeg command: ffmpeg $command');
-
-      final session = await FFmpegKit.executeAsync(command, (dynamic log) {
-        AppLogger.info('FFmpeg: ${log.message}');
-      });
-
-      final returnCode = await session.getReturnCode();
-
-      if (ReturnCode.isSuccess(returnCode)) {
-        AppLogger.info('Video optimization completed: $outputPath');
-        return outputPath;
-      } else {
-        final failStackTrace = await session.getFailStackTrace();
-        throw Exception('FFmpeg optimization failed: $failStackTrace');
-      }
+      // FFmpeg Kit is currently unavailable
+      throw Exception('Video optimization not yet available in this build. FFmpeg Kit dependency needs to be resolved.');
+      
+      // TODO: Uncomment when FFmpeg Kit is available
+      // final command = '-i $inputPath '
+      //     '-c:v libx264 -preset $preset '
+      //     '-b:v ${bitrate}k '
+      //     '-c:a aac -b:a 128k '
+      //     '-shortest '
+      //     '$outputPath';
+      //
+      // AppLogger.info('FFmpeg command: ffmpeg $command');
+      //
+      // final session = await FFmpegKit.executeAsync(command, (dynamic log) {
+      //   AppLogger.info('FFmpeg: ${log.message}');
+      // });
+      //
+      // final returnCode = await session.getReturnCode();
+      //
+      // if (ReturnCode.isSuccess(returnCode)) {
+      //   AppLogger.info('Video optimization completed: $outputPath');
+      //   return outputPath;
+      // } else {
+      //   final failStackTrace = await session.getFailStackTrace();
+      //   throw Exception('FFmpeg optimization failed: $failStackTrace');
+      // }
     } catch (e) {
       AppLogger.error('Failed to optimize video', error: e);
       throw Exception('Video optimization failed: $e');
@@ -168,8 +182,9 @@ class VideoCompositionService {
   /// Cancel ongoing FFmpeg operation
   static Future<void> cancelProcessing() async {
     try {
-      await FFmpegKit.cancel();
-      AppLogger.info('FFmpeg processing cancelled');
+      // FFmpeg Kit is currently unavailable
+      // await FFmpegKit.cancel();
+      AppLogger.info('FFmpeg processing cancelled (FFmpeg Kit currently unavailable)');
     } catch (e) {
       AppLogger.error('Failed to cancel FFmpeg processing', error: e);
     }
