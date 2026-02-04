@@ -53,36 +53,64 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _requestPermissions() async {
-    try {
-      AppLogger.info('Requesting permissions...');
-      final granted = await PermissionService.requestAllRecordingPermissions();
-      
-      if (mounted) {
-        setState(() {
-          _permissionsGranted = granted;
-        });
-      }
+   Future<void> _requestPermissions() async {
+     try {
+       AppLogger.info('Checking permissions...');
+       
+       // Check if already granted
+       final cameraGranted = await PermissionService.isCameraPermissionGranted();
+       final storageGranted = await PermissionService.isStoragePermissionGranted();
 
-      if (!granted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Camera and storage permissions are required'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      AppLogger.error('Failed to request permissions', error: e);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Permission error: $e')),
-        );
-      }
-    }
-  }
+       if (cameraGranted && storageGranted) {
+         AppLogger.info('All permissions already granted');
+         setState(() {
+           _permissionsGranted = true;
+         });
+         return;
+       }
+
+       AppLogger.info('Requesting missing permissions...');
+       final granted = await PermissionService.requestAllRecordingPermissions();
+       
+       if (mounted) {
+         setState(() {
+           _permissionsGranted = granted;
+         });
+       }
+
+       if (!granted) {
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(
+               content: Text('❌ Camera and storage permissions are required to record videos'),
+               duration: Duration(seconds: 4),
+               backgroundColor: Colors.red,
+             ),
+           );
+         }
+       } else {
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(
+               content: Text('✅ All permissions granted'),
+               duration: Duration(seconds: 2),
+               backgroundColor: Colors.green,
+             ),
+           );
+         }
+       }
+     } catch (e) {
+       AppLogger.error('Failed to request permissions', error: e);
+       if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(
+             content: Text('Permission error: $e'),
+             backgroundColor: Colors.red,
+           ),
+         );
+       }
+     }
+   }
 
   Future<void> _initializeCameras() async {
     try {
