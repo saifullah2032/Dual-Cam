@@ -82,7 +82,7 @@ void main() {
       expect(toString, contains('video.mp4'));
       expect(toString, contains('0:02:00')); // duration format
       expect(toString, contains('1920x1080'));
-    });;
+    });
 
     test('VideoMetadata serialization round-trip should be lossless', () {
       final original = VideoMetadata(

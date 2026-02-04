@@ -8,11 +8,11 @@ class RecordingTimer extends StatelessWidget {
   final Color color;
 
   const RecordingTimer({
-    Key? key,
+    super.key,
     required this.duration,
     this.isRecording = true,
     this.color = OceanColors.error,
-  }) : super(key: key);
+  });
 
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');

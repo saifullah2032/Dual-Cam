@@ -11,14 +11,14 @@ class OceanAppBar extends StatelessWidget implements PreferredSizeWidget {
   final double elevation;
 
   const OceanAppBar({
-    Key? key,
+    super.key,
     required this.title,
     this.onBackPressed,
     this.actions,
     this.showGradient = true,
     this.showBlur = true,
     this.elevation = 0,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

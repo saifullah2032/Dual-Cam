@@ -10,11 +10,11 @@ class CameraPreviewWidget extends StatefulWidget {
   final Function(Exception)? onError;
 
   const CameraPreviewWidget({
-    Key? key,
+    super.key,
     required this.controller,
     this.fit = BoxFit.cover,
     this.onError,
-  }) : super(key: key);
+  });
 
   @override
   State<CameraPreviewWidget> createState() => _CameraPreviewWidgetState();

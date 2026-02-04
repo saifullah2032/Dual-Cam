@@ -102,7 +102,7 @@ class FileStorageService {
       final file = File('${metadataDir.path}/$filename');
 
       final json = metadata.toJson();
-      await file.writeAsString('${json.toString()}');
+      await file.writeAsString(json.toString());
 
       AppLogger.info('Metadata saved: ${file.path}');
     } catch (e) {
@@ -187,7 +187,6 @@ class FileStorageService {
   /// Get available storage space in MB
   static Future<double> getAvailableStorage() async {
     try {
-      final tempDir = await getTemporaryDirectory();
       // This is a simplified implementation
       // In production, you might use a package like disk_space
       return 0; // Placeholder

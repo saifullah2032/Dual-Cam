@@ -13,7 +13,7 @@ class OceanButton extends StatefulWidget {
   final ButtonVariant variant;
 
   const OceanButton({
-    Key? key,
+    super.key,
     required this.onPressed,
     required this.label,
     this.icon,
@@ -22,7 +22,7 @@ class OceanButton extends StatefulWidget {
     this.width,
     this.height = 56,
     this.variant = ButtonVariant.primary,
-  }) : super(key: key);
+  });
 
   @override
   State<OceanButton> createState() => _OceanButtonState();

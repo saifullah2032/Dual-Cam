@@ -15,7 +15,7 @@ void main() async {
 }
 
 class DualRecorderApp extends StatelessWidget {
-  const DualRecorderApp({Key? key}) : super(key: key);
+  const DualRecorderApp({super.key});
 
   @override
   Widget build(BuildContext context) {

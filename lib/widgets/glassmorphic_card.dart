@@ -13,7 +13,7 @@ class GlassmorphicCard extends StatelessWidget {
   final Color backgroundColor;
 
   const GlassmorphicCard({
-    Key? key,
+    super.key,
     required this.child,
     this.blur = 10,
     this.opacity = 0.1,
@@ -21,7 +21,7 @@ class GlassmorphicCard extends StatelessWidget {
     this.margin = const EdgeInsets.all(0),
     this.borderRadius = const BorderRadius.all(Radius.circular(12)),
     this.backgroundColor = OceanColors.glassWhite,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

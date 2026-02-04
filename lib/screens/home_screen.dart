@@ -13,7 +13,7 @@ import 'gallery_screen.dart';
 
 /// Home/Main screen displaying device capability status and navigation
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();

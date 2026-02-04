@@ -10,7 +10,7 @@ import '../widgets/camera_preview_widget.dart';
 
 /// Screen for recording from dual cameras
 class RecordingScreen extends StatefulWidget {
-  const RecordingScreen({Key? key}) : super(key: key);
+  const RecordingScreen({super.key});
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();
@@ -75,7 +75,7 @@ class _RecordingScreenState extends State<RecordingScreen>
       final recordingsDir = await FileStorageService.getRecordingsDirectory();
       
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final filename = 'recording_${timestamp}.mp4';
+      final filename = 'recording_$timestamp.mp4';
       final outputPath = '${recordingsDir.path}/$filename';
 
       AppLogger.info('Starting recording to: $outputPath');
